@@ -89,11 +89,6 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 		}
 	}
 
-	blackoutStyle, _ := f.NewStyle(&excelize.Style{
-		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#D9D9D9"}},
-		Font: &excelize.Font{Color: "#808080", Italic: true, Size: 16, Family: "Arial"},
-	})
-
 	cellStyle, _ := f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{Size: 16, Family: "Arial"},
 	})
@@ -156,26 +151,18 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 		f.SetCellValue(sheet, cellRef(2, row), ts.date.Format("Mon"))
 		f.SetCellValue(sheet, cellRef(3, row), ts.time)
 
-		allBlackout := true
 		for fi, fname := range fieldNames {
 			col := fi + 4 // 1-indexed, after Date/Day/Time
 			sk := slotKey{ts.date, ts.time, fname}
 
 			if a, ok := assignmentMap[sk]; ok {
 				f.SetCellValue(sheet, cellRef(col, row), fmt.Sprintf("%s @ %s", a.Game.Away, a.Game.Home))
-				allBlackout = false
 			} else if reason, ok := blackoutMap[sk]; ok {
 				f.SetCellValue(sheet, cellRef(col, row), reason)
-			} else {
-				allBlackout = false
 			}
 		}
 
-		if allBlackout {
-			for col := 1; col <= len(headers); col++ {
-				f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), blackoutStyle)
-			}
-		} else if cellStyle != 0 {
+		if cellStyle != 0 {
 			for col := 1; col <= len(headers); col++ {
 				f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), cellStyle)
 			}
@@ -189,6 +176,26 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 	for i := range fieldNames {
 		col := colLetter(i + 4)
 		f.SetColWidth(sheet, col, col, 30)
+	}
+
+	// Conditional formatting: non-game cells in field columns get light red
+	lastRow := len(timeSlots) + 1
+	redFill, _ := f.NewStyle(&excelize.Style{
+		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFC7CE"}},
+		Font: &excelize.Font{Size: 16, Family: "Arial"},
+	})
+	for i := range fieldNames {
+		col := colLetter(i + 4)
+		cellRange := fmt.Sprintf("%s2:%s%d", col, col, lastRow)
+		topCell := fmt.Sprintf("%s2", col)
+		formula := fmt.Sprintf(`AND(%s<>"",ISERROR(FIND(" @ ",%s)))`, topCell, topCell)
+		f.SetConditionalFormat(sheet, cellRange, []excelize.ConditionalFormatOptions{
+			{
+				Type:     "formula",
+				Criteria: formula,
+				Format:   &redFill,
+			},
+		})
 	}
 
 	return nil
