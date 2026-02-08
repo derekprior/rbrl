@@ -203,7 +203,7 @@ rules:
 # that intentionally break guidelines when needed.
 guidelines:
   avoid_3_in_4_days: true                # Try not to schedule 3 games in any 4-day window
-  min_days_between_same_matchup: 14      # Minimum days before two teams play again
+  min_days_between_same_matchup: 10      # Minimum days before two teams play again
   balance_sunday_games: true             # Spread Sunday games evenly across teams
   balance_pace: true                     # Keep games-played roughly equal across teams
 `

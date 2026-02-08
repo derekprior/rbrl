@@ -859,10 +859,21 @@ func (s *scheduler) softScore() float64 {
 		}
 	}
 
-	// Rematch proximity
+	// Rematch proximity — escalating: closer rematches are worse
+	matchups := make(map[matchupKey][]time.Time)
 	for _, a := range s.assignments {
 		mk := normalizeMatchup(a.Game.Home, a.Game.Away)
-		_ = mk // already tracked
+		matchups[mk] = append(matchups[mk], a.Slot.Date)
+	}
+	minDays := float64(s.cfg.Guidelines.MinDaysBetweenSameMatchup)
+	for _, dates := range matchups {
+		sortDatesInPlace(dates)
+		for i := 1; i < len(dates); i++ {
+			daysBetween := dates[i].Sub(dates[i-1]).Hours() / 24
+			if daysBetween < minDays {
+				score += (minDays - daysBetween) * 5
+			}
+		}
 	}
 
 	return score
@@ -902,7 +913,14 @@ func (s *scheduler) buildMetrics() ([]string, map[string]*TeamMetrics) {
 		}
 	}
 
-	// Check rematch proximity
+	// Check rematch proximity — collect and sort by severity (fewest days first)
+	type rematchViolation struct {
+		days    float64
+		warning string
+		teamA   string
+		teamB   string
+	}
+	var rematchViolations []rematchViolation
 	matchups := make(map[matchupKey][]time.Time)
 	for _, a := range s.assignments {
 		mk := normalizeMatchup(a.Game.Home, a.Game.Away)
@@ -913,14 +931,25 @@ func (s *scheduler) buildMetrics() ([]string, map[string]*TeamMetrics) {
 		for i := 1; i < len(dates); i++ {
 			daysBetween := dates[i].Sub(dates[i-1]).Hours() / 24
 			if daysBetween < float64(s.cfg.Guidelines.MinDaysBetweenSameMatchup) {
-				w := fmt.Sprintf("%s vs %s rematch after only %.0f days (min %d): %s and %s",
+				w := fmt.Sprintf("%s vs %s rematch after %.0f days (min %d): %s and %s",
 					mk.a, mk.b, daysBetween, s.cfg.Guidelines.MinDaysBetweenSameMatchup,
 					dates[i-1].Format("01/02"), dates[i].Format("01/02"))
-				warnings = append(warnings, w)
-				metrics[mk.a].Violations = append(metrics[mk.a].Violations, w)
-				metrics[mk.b].Violations = append(metrics[mk.b].Violations, w)
+				rematchViolations = append(rematchViolations, rematchViolation{
+					days: daysBetween, warning: w, teamA: mk.a, teamB: mk.b,
+				})
 			}
 		}
+	}
+	// Sort: fewest days (worst) first
+	for i := 1; i < len(rematchViolations); i++ {
+		for j := i; j > 0 && rematchViolations[j].days < rematchViolations[j-1].days; j-- {
+			rematchViolations[j], rematchViolations[j-1] = rematchViolations[j-1], rematchViolations[j]
+		}
+	}
+	for _, rv := range rematchViolations {
+		warnings = append(warnings, rv.warning)
+		metrics[rv.teamA].Violations = append(metrics[rv.teamA].Violations, rv.warning)
+		metrics[rv.teamB].Violations = append(metrics[rv.teamB].Violations, rv.warning)
 	}
 
 	// Sunday balance

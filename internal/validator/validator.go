@@ -3,6 +3,7 @@ package validator
 import (
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/derekprior/rbrl/internal/config"
@@ -14,6 +15,7 @@ type Violation struct {
 	Row     int
 	Type    string // "error" or "warning"
 	Message string
+	Days    int // for rematch violations: days between games (0 = not applicable)
 }
 
 // Validate reads a schedule Excel file and checks it against the config rules.
@@ -242,6 +244,7 @@ func checkRematchProximity(cfg *config.Config, games []parsedGame) []Violation {
 			if days < cfg.Guidelines.MinDaysBetweenSameMatchup {
 				violations = append(violations, Violation{
 					Type: "warning",
+					Days: days,
 					Message: fmt.Sprintf("%s vs %s rematch after %d days (min %d): %s and %s",
 						mk.a, mk.b, days, cfg.Guidelines.MinDaysBetweenSameMatchup,
 						dates[i-1].Format("01/02"), dates[i].Format("01/02")),
@@ -249,6 +252,10 @@ func checkRematchProximity(cfg *config.Config, games []parsedGame) []Violation {
 			}
 		}
 	}
+	// Sort by severity: fewest days (worst) first
+	sort.Slice(violations, func(i, j int) bool {
+		return violations[i].Days < violations[j].Days
+	})
 	return violations
 }
 
