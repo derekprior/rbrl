@@ -188,8 +188,8 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 
 	// Conditional formatting: non-game cells in field columns get light red
 	lastRow := len(timeSlots) + 1
-	redFill, _ := f.NewStyle(&excelize.Style{
-		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#FFC7CE"}},
+	redFill, _ := f.NewConditionalStyle(&excelize.Style{
+		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"FFC7CE"}},
 		Font: &excelize.Font{Size: 16, Family: "Arial"},
 	})
 	for i := range fieldNames {
