@@ -143,8 +143,12 @@ func (s *scheduler) run() error {
 				bestResult = candidate
 			}
 		} else {
-			// Track the attempt that scheduled the most games
-			if bestFailure == nil || len(candidate.assignments) > len(bestFailure.assignments) {
+			// Track the attempt that scheduled the most games,
+			// using softScore as tiebreaker
+			if bestFailure == nil ||
+				len(candidate.assignments) > len(bestFailure.assignments) ||
+				(len(candidate.assignments) == len(bestFailure.assignments) &&
+					candidate.softScore() < bestFailure.softScore()) {
 				bestFailure = candidate
 			}
 		}
@@ -254,6 +258,11 @@ func (s *scheduler) tryDisplaceAtDepth(game strategy.Game, depth int) bool {
 		sk := slotKey{slot.Date, slot.Time, slot.Field}
 
 		if !s.usedSlots[sk] {
+			continue
+		}
+
+		// Don't displace Sunday assignments — Phase 2 balanced them
+		if slot.Date.Weekday() == time.Sunday {
 			continue
 		}
 
@@ -380,10 +389,10 @@ func (s *scheduler) scheduleSaturdays(games []strategy.Game, rng *rand.Rand) []s
 }
 
 // findPerfectMatch finds len(teams)/2 games from the pool that cover all teams.
+// Uses recursive backtracking to find a valid matching.
 func (s *scheduler) findPerfectMatch(games []strategy.Game, used map[int]bool, teams []string, rng *rand.Rand) []int {
 	needed := len(teams) / 2
 
-	// Shuffle indices for randomness
 	indices := make([]int, 0, len(games))
 	for i := range games {
 		if !used[i] {
@@ -395,22 +404,34 @@ func (s *scheduler) findPerfectMatch(games []strategy.Game, used map[int]bool, t
 	})
 
 	teamUsed := make(map[string]bool)
-	var match []int
+	match := make([]int, 0, needed)
 
+	if s.findMatchRecursive(games, indices, teamUsed, &match, needed) {
+		return match
+	}
+	return nil
+}
+
+func (s *scheduler) findMatchRecursive(games []strategy.Game, indices []int, teamUsed map[string]bool, match *[]int, needed int) bool {
+	if len(*match) == needed {
+		return true
+	}
 	for _, i := range indices {
 		g := games[i]
 		if teamUsed[g.Home] || teamUsed[g.Away] {
 			continue
 		}
-		match = append(match, i)
 		teamUsed[g.Home] = true
 		teamUsed[g.Away] = true
-		if len(match) == needed {
-			return match
+		*match = append(*match, i)
+		if s.findMatchRecursive(games, indices, teamUsed, match, needed) {
+			return true
 		}
+		*match = (*match)[:len(*match)-1]
+		delete(teamUsed, g.Home)
+		delete(teamUsed, g.Away)
 	}
-
-	return nil // couldn't find a perfect match
+	return false
 }
 
 // scheduleSundays assigns games to Sunday slots, balancing across teams.
@@ -438,10 +459,14 @@ func (s *scheduler) scheduleSundays(games []strategy.Game, rng *rand.Rand) []str
 		}
 
 		// Pick games favoring teams with fewer Sunday games
-		for gamesScheduled := 0; gamesScheduled < maxGames; gamesScheduled++ {
+		gamesThisSunday := 0
+		for gamesThisSunday < maxGames {
 			bestGame := -1
 			bestSlot := -1
 			bestScore := math.MaxFloat64
+
+			// Cap: no team should exceed minSunday + 2
+			maxAllowed := s.minSundayGames() + 2
 
 			for i, game := range games {
 				if scheduled[i] {
@@ -450,6 +475,9 @@ func (s *scheduler) scheduleSundays(games []strategy.Game, rng *rand.Rand) []str
 
 				sunHome := s.sundayGames(game.Home)
 				sunAway := s.sundayGames(game.Away)
+				if sunHome >= maxAllowed || sunAway >= maxAllowed {
+					continue
+				}
 				gameScore := float64(sunHome+sunAway) * 10
 
 				for _, si := range sunSlots {
@@ -476,6 +504,7 @@ func (s *scheduler) scheduleSundays(games []strategy.Game, rng *rand.Rand) []str
 
 			s.assign(games[bestGame], s.slots[bestSlot])
 			scheduled[bestGame] = true
+			gamesThisSunday++
 		}
 	}
 
@@ -717,8 +746,12 @@ func (s *scheduler) scoreSlot(game strategy.Game, slot Slot) float64 {
 
 	// Balance Sunday games
 	if s.cfg.Guidelines.BalanceSundayGames && slot.Date.Weekday() == time.Sunday {
+		maxAllowed := s.minSundayGames() + 2
 		for _, team := range []string{game.Home, game.Away} {
 			sunCount := s.sundayGames(team)
+			if sunCount >= maxAllowed {
+				score += 1000
+			}
 			score += float64(sunCount) * 10
 		}
 	}
@@ -752,6 +785,29 @@ func (s *scheduler) sundayGames(team string) int {
 	return count
 }
 
+func (s *scheduler) saturdayGames(team string) int {
+	count := 0
+	for _, d := range s.teamDates[team] {
+		if d.Weekday() == time.Saturday {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *scheduler) minSundayGames() int {
+	min := math.MaxInt
+	for _, team := range s.cfg.AllTeams() {
+		if c := s.sundayGames(team); c < min {
+			min = c
+		}
+	}
+	if min == math.MaxInt {
+		return 0
+	}
+	return min
+}
+
 func (s *scheduler) softScore() float64 {
 	score := 0.0
 
@@ -767,6 +823,30 @@ func (s *scheduler) softScore() float64 {
 			}
 		}
 		score += float64(max - min)
+	}
+
+	// Saturday balance — heavily penalize teams missing Saturdays
+	numSaturdays := len(s.slotDates(time.Saturday))
+	for _, team := range s.cfg.AllTeams() {
+		satGames := s.saturdayGames(team)
+		if satGames < numSaturdays {
+			score += float64(numSaturdays-satGames) * 50
+		}
+	}
+
+	// Sunday balance
+	maxSun, minSun := 0, math.MaxInt
+	for _, team := range s.cfg.AllTeams() {
+		c := s.sundayGames(team)
+		if c > maxSun {
+			maxSun = c
+		}
+		if c < minSun {
+			minSun = c
+		}
+	}
+	if maxSun-minSun > 2 {
+		score += float64(maxSun-minSun) * 20
 	}
 
 	// 3-in-4-days violations
