@@ -209,14 +209,87 @@ func (s *scheduler) trySchedule(games []strategy.Game, rng *rand.Rand) bool {
 	// Sort by difficulty: games with fewer available slots go first
 	s.sortByDifficulty(remaining)
 
-	for _, game := range remaining {
-		if !s.assignGame(game) {
-			s.stuckOnGame = &game
-			s.unscheduled = append(s.unscheduled, game)
-		}
-	}
+	remaining = s.scheduleWithBacktracking(remaining)
+	s.unscheduled = remaining
 
 	return len(s.unscheduled) == 0
+}
+
+// scheduleWithBacktracking tries to place all games, displacing existing
+// assignments when a game can't be placed directly.
+func (s *scheduler) scheduleWithBacktracking(games []strategy.Game) []strategy.Game {
+	var unscheduled []strategy.Game
+
+	for _, game := range games {
+		if s.assignGame(game) {
+			continue
+		}
+
+		// Can't place directly — try displacing an existing assignment
+		if s.tryDisplace(game) {
+			continue
+		}
+
+		if s.stuckOnGame == nil {
+			s.stuckOnGame = &game
+		}
+		unscheduled = append(unscheduled, game)
+	}
+
+	return unscheduled
+}
+
+// tryDisplace attempts to place a game by removing a conflicting assignment
+// and re-placing the displaced game elsewhere, up to maxDepth levels deep.
+func (s *scheduler) tryDisplace(game strategy.Game) bool {
+	return s.tryDisplaceAtDepth(game, 3)
+}
+
+func (s *scheduler) tryDisplaceAtDepth(game strategy.Game, depth int) bool {
+	if depth <= 0 {
+		return false
+	}
+
+	for _, slot := range s.slots {
+		sk := slotKey{slot.Date, slot.Time, slot.Field}
+
+		if !s.usedSlots[sk] {
+			continue
+		}
+
+		victimIdx := -1
+		for i, a := range s.assignments {
+			if a.Slot.Date.Equal(slot.Date) && a.Slot.Time == slot.Time && a.Slot.Field == slot.Field {
+				victimIdx = i
+				break
+			}
+		}
+		if victimIdx < 0 {
+			continue
+		}
+
+		victim := s.unassign(victimIdx)
+
+		if _, ok := s.hardConstraintCheck(game, slot); ok {
+			s.assign(game, slot)
+			if s.assignGame(victim.Game) {
+				return true
+			}
+			if s.tryDisplaceAtDepth(victim.Game, depth-1) {
+				return true
+			}
+			for i, a := range s.assignments {
+				if a.Slot.Date.Equal(slot.Date) && a.Slot.Time == slot.Time && a.Slot.Field == slot.Field {
+					s.unassign(i)
+					break
+				}
+			}
+		}
+
+		s.assign(victim.Game, victim.Slot)
+	}
+
+	return false
 }
 
 // sortByDifficulty orders games so those with fewer available slots come first.
@@ -484,6 +557,43 @@ func (s *scheduler) assign(game strategy.Game, slot Slot) {
 
 	mk := normalizeMatchup(game.Home, game.Away)
 	s.matchupDate[mk] = slot.Date
+}
+
+func (s *scheduler) unassign(idx int) Assignment {
+	a := s.assignments[idx]
+	s.assignments = append(s.assignments[:idx], s.assignments[idx+1:]...)
+
+	sk := slotKey{a.Slot.Date, a.Slot.Time, a.Slot.Field}
+	delete(s.usedSlots, sk)
+	s.slotTimeCnt[timeKey{a.Slot.Date, a.Slot.Time}]--
+
+	s.teamDates[a.Game.Home] = removeDate(s.teamDates[a.Game.Home], a.Slot.Date)
+	s.teamDates[a.Game.Away] = removeDate(s.teamDates[a.Game.Away], a.Slot.Date)
+	s.teamGames[a.Game.Home]--
+	s.teamGames[a.Game.Away]--
+
+	// Rebuild matchupDate for this pair from remaining assignments
+	mk := normalizeMatchup(a.Game.Home, a.Game.Away)
+	delete(s.matchupDate, mk)
+	for _, other := range s.assignments {
+		omk := normalizeMatchup(other.Game.Home, other.Game.Away)
+		if omk == mk {
+			if existing, ok := s.matchupDate[mk]; !ok || other.Slot.Date.After(existing) {
+				s.matchupDate[mk] = other.Slot.Date
+			}
+		}
+	}
+
+	return a
+}
+
+func removeDate(dates []time.Time, d time.Time) []time.Time {
+	for i, t := range dates {
+		if t.Equal(d) {
+			return append(dates[:i], dates[i+1:]...)
+		}
+	}
+	return dates
 }
 
 func (s *scheduler) hardConstraintCheck(game strategy.Game, slot Slot) (rejectionReason, bool) {
