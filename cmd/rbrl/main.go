@@ -196,6 +196,7 @@ rules:
   max_consecutive_days: 2          # No team plays 3+ days in a row
   max_games_per_week: 3            # Max games per team per calendar week
   max_games_per_timeslot: 2        # Max simultaneous games (limited by umpire crews)
+  max_3_in_4_days: true            # No team plays 3 games in any 4-day window
 
 # Guidelines are soft constraints. The scheduler tries to honor them but
 # violations are reported as warnings, not errors. This allows manual edits

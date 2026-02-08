@@ -77,10 +77,11 @@ type TimeSlots struct {
 }
 
 type Rules struct {
-	MaxGamesPerDayPerTeam int `yaml:"max_games_per_day_per_team"`
-	MaxConsecutiveDays    int `yaml:"max_consecutive_days"`
-	MaxGamesPerWeek       int `yaml:"max_games_per_week"`
-	MaxGamesPerTimeslot   int `yaml:"max_games_per_timeslot"`
+	MaxGamesPerDayPerTeam int  `yaml:"max_games_per_day_per_team"`
+	MaxConsecutiveDays    int  `yaml:"max_consecutive_days"`
+	MaxGamesPerWeek       int  `yaml:"max_games_per_week"`
+	MaxGamesPerTimeslot   int  `yaml:"max_games_per_timeslot"`
+	Max3In4Days           bool `yaml:"max_3_in_4_days"`
 }
 
 type Guidelines struct {

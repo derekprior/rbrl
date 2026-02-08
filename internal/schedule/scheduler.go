@@ -63,6 +63,7 @@ const (
 	rejectDoublePlay
 	rejectConsecutiveDays
 	rejectMaxWeekGames
+	reject3In4Days
 )
 
 type scheduler struct {
@@ -486,6 +487,15 @@ func (s *scheduler) hardConstraintCheck(game strategy.Game, slot Slot) (rejectio
 		}
 		if count >= s.cfg.Rules.MaxGamesPerWeek {
 			return rejectMaxWeekGames, false
+		}
+	}
+
+	// No 3 games in 4 days
+	if s.cfg.Rules.Max3In4Days {
+		for _, team := range []string{game.Home, game.Away} {
+			if s.gamesInWindow(team, slot.Date, 4) >= 2 {
+				return reject3In4Days, false
+			}
 		}
 	}
 
