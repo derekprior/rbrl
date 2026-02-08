@@ -52,6 +52,8 @@ rules:
   max_consecutive_days: 2
   max_games_per_week: 3
   max_games_per_timeslot: 2
+
+guidelines:
   avoid_3_in_4_days: true
   min_days_between_same_matchup: 14
   balance_sunday_games: true
@@ -144,16 +146,19 @@ func TestLoadConfig(t *testing.T) {
 		if cfg.Rules.MaxGamesPerTimeslot != 2 {
 			t.Errorf("max games/timeslot = %d, want 2", cfg.Rules.MaxGamesPerTimeslot)
 		}
-		if !cfg.Rules.Avoid3In4Days {
+	})
+
+	t.Run("guidelines", func(t *testing.T) {
+		if !cfg.Guidelines.Avoid3In4Days {
 			t.Error("avoid_3_in_4_days should be true")
 		}
-		if cfg.Rules.MinDaysBetweenSameMatchup != 14 {
-			t.Errorf("min days between rematch = %d, want 14", cfg.Rules.MinDaysBetweenSameMatchup)
+		if cfg.Guidelines.MinDaysBetweenSameMatchup != 14 {
+			t.Errorf("min days between rematch = %d, want 14", cfg.Guidelines.MinDaysBetweenSameMatchup)
 		}
-		if !cfg.Rules.BalanceSundayGames {
+		if !cfg.Guidelines.BalanceSundayGames {
 			t.Error("balance_sunday_games should be true")
 		}
-		if !cfg.Rules.BalancePace {
+		if !cfg.Guidelines.BalancePace {
 			t.Error("balance_pace should be true")
 		}
 	})

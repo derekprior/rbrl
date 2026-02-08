@@ -250,7 +250,7 @@ func (s *scheduler) scoreSlot(game strategy.Game, slot Slot) float64 {
 	score := 0.0
 
 	// Prefer spreading games evenly (balance pace)
-	if s.cfg.Rules.BalancePace {
+	if s.cfg.Guidelines.BalancePace {
 		homeGames := s.teamGames[game.Home]
 		awayGames := s.teamGames[game.Away]
 		avgGames := 0.0
@@ -270,14 +270,14 @@ func (s *scheduler) scoreSlot(game strategy.Game, slot Slot) float64 {
 	mk := normalizeMatchup(game.Home, game.Away)
 	if lastDate, ok := s.matchupDate[mk]; ok {
 		daysBetween := slot.Date.Sub(lastDate).Hours() / 24
-		minDays := float64(s.cfg.Rules.MinDaysBetweenSameMatchup)
+		minDays := float64(s.cfg.Guidelines.MinDaysBetweenSameMatchup)
 		if daysBetween < minDays {
 			score += (minDays - daysBetween) * 5
 		}
 	}
 
 	// Avoid 3 games in 4 days
-	if s.cfg.Rules.Avoid3In4Days {
+	if s.cfg.Guidelines.Avoid3In4Days {
 		for _, team := range []string{game.Home, game.Away} {
 			if s.gamesInWindow(team, slot.Date, 4) >= 2 {
 				score += 20
@@ -286,7 +286,7 @@ func (s *scheduler) scoreSlot(game strategy.Game, slot Slot) float64 {
 	}
 
 	// Balance Sunday games
-	if s.cfg.Rules.BalanceSundayGames && slot.Date.Weekday() == time.Sunday {
+	if s.cfg.Guidelines.BalanceSundayGames && slot.Date.Weekday() == time.Sunday {
 		for _, team := range []string{game.Home, game.Away} {
 			sunCount := s.sundayGames(team)
 			score += float64(sunCount) * 10
@@ -389,10 +389,10 @@ func (s *scheduler) collectWarnings() []string {
 		sortDatesInPlace(dates)
 		for i := 1; i < len(dates); i++ {
 			daysBetween := dates[i].Sub(dates[i-1]).Hours() / 24
-			if daysBetween < float64(s.cfg.Rules.MinDaysBetweenSameMatchup) {
+			if daysBetween < float64(s.cfg.Guidelines.MinDaysBetweenSameMatchup) {
 				warnings = append(warnings, fmt.Sprintf(
 					"%s vs %s rematch after only %.0f days (min %d): %s and %s",
-					mk.a, mk.b, daysBetween, s.cfg.Rules.MinDaysBetweenSameMatchup,
+					mk.a, mk.b, daysBetween, s.cfg.Guidelines.MinDaysBetweenSameMatchup,
 					dates[i-1].Format("01/02"), dates[i].Format("01/02")))
 			}
 		}

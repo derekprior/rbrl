@@ -45,14 +45,16 @@ func fullTestConfig() *config.Config {
 		},
 		Strategy: "division_weighted",
 		Rules: config.Rules{
-			MaxGamesPerDayPerTeam:    1,
-			MaxConsecutiveDays:       2,
-			MaxGamesPerWeek:          3,
-			MaxGamesPerTimeslot:      2,
-			Avoid3In4Days:            true,
+			MaxGamesPerDayPerTeam: 1,
+			MaxConsecutiveDays:    2,
+			MaxGamesPerWeek:       3,
+			MaxGamesPerTimeslot:   2,
+		},
+		Guidelines: config.Guidelines{
+			Avoid3In4Days:             true,
 			MinDaysBetweenSameMatchup: 14,
-			BalanceSundayGames:       true,
-			BalancePace:              true,
+			BalanceSundayGames:        true,
+			BalancePace:               true,
 		},
 	}
 }

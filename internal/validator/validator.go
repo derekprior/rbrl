@@ -183,7 +183,7 @@ func checkMaxGamesPerTimeslot(cfg *config.Config, games []parsedGame) []Violatio
 }
 
 func checkRematchProximity(cfg *config.Config, games []parsedGame) []Violation {
-	if cfg.Rules.MinDaysBetweenSameMatchup <= 0 {
+	if cfg.Guidelines.MinDaysBetweenSameMatchup <= 0 {
 		return nil
 	}
 
@@ -202,11 +202,11 @@ func checkRematchProximity(cfg *config.Config, games []parsedGame) []Violation {
 		sortDates(dates)
 		for i := 1; i < len(dates); i++ {
 			days := int(dates[i].Sub(dates[i-1]).Hours() / 24)
-			if days < cfg.Rules.MinDaysBetweenSameMatchup {
+			if days < cfg.Guidelines.MinDaysBetweenSameMatchup {
 				violations = append(violations, Violation{
 					Type: "warning",
 					Message: fmt.Sprintf("%s vs %s rematch after %d days (min %d): %s and %s",
-						mk.a, mk.b, days, cfg.Rules.MinDaysBetweenSameMatchup,
+						mk.a, mk.b, days, cfg.Guidelines.MinDaysBetweenSameMatchup,
 						dates[i-1].Format("01/02"), dates[i].Format("01/02")),
 				})
 			}
@@ -216,7 +216,7 @@ func checkRematchProximity(cfg *config.Config, games []parsedGame) []Violation {
 }
 
 func check3In4Days(cfg *config.Config, games []parsedGame) []Violation {
-	if !cfg.Rules.Avoid3In4Days {
+	if !cfg.Guidelines.Avoid3In4Days {
 		return nil
 	}
 
@@ -238,7 +238,7 @@ func check3In4Days(cfg *config.Config, games []parsedGame) []Violation {
 }
 
 func checkSundayBalance(cfg *config.Config, games []parsedGame) []Violation {
-	if !cfg.Rules.BalanceSundayGames {
+	if !cfg.Guidelines.BalanceSundayGames {
 		return nil
 	}
 
