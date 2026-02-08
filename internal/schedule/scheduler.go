@@ -783,6 +783,14 @@ func (s *scheduler) scoreSlot(game strategy.Game, slot Slot) float64 {
 	dayNum := slot.Date.Sub(s.cfg.Season.StartDate.Time).Hours() / 24
 	score += dayNum * 0.1
 
+	// Prefer later time slots (e.g., 17:00 over 12:30 on multi-slot days).
+	// "HH:MM" strings sort chronologically; invert so later = lower score.
+	t, err := time.Parse("15:04", slot.Time)
+	if err == nil {
+		minutesSinceMidnight := t.Hour()*60 + t.Minute()
+		score -= float64(minutesSinceMidnight) * 0.001
+	}
+
 	return score
 }
 
