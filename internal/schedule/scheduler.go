@@ -210,6 +210,15 @@ func (s *scheduler) buildFailureError(best *scheduler) error {
 		msg += fmt.Sprintf("\n  %-15s %d", team, count)
 	}
 
+	// Guideline violations for scheduled games
+	warnings := best.collectWarnings()
+	if len(warnings) > 0 {
+		msg += fmt.Sprintf("\n\nGuideline violations (%d):", len(warnings))
+		for _, w := range warnings {
+			msg += fmt.Sprintf("\n  ⚠ %s", w)
+		}
+	}
+
 	return fmt.Errorf("%s", msg)
 }
 

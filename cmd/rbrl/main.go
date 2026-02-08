@@ -232,10 +232,12 @@ func runGenerate(configPath, outputPath string) error {
 	fmt.Printf("✓ All %d games scheduled\n", len(result.Assignments))
 
 	if len(result.Warnings) > 0 {
-		fmt.Printf("\n⚠ %d warnings:\n", len(result.Warnings))
+		fmt.Printf("\nGuideline violations (%d):\n", len(result.Warnings))
 		for _, w := range result.Warnings {
-			fmt.Printf("  • %s\n", w)
+			fmt.Printf("  ⚠ %s\n", w)
 		}
+	} else {
+		fmt.Println("\n✓ No guideline violations")
 	}
 
 	f, err := excel.Generate(cfg, result, slots, blackouts)
@@ -268,14 +270,14 @@ func runValidate(configPath, schedulePath string) error {
 		switch v.Type {
 		case "error":
 			errors++
-			fmt.Printf("✗ ERROR: %s\n", v.Message)
+			fmt.Printf("✗ Rule violation: %s\n", v.Message)
 		case "warning":
 			warnings++
-			fmt.Printf("⚠ WARNING: %s\n", v.Message)
+			fmt.Printf("⚠ Guideline violation: %s\n", v.Message)
 		}
 	}
 
-	fmt.Printf("\nValidation complete: %d errors, %d warnings\n", errors, warnings)
+	fmt.Printf("\nValidation complete: %d rule violations, %d guideline violations\n", errors, warnings)
 
 	if errors > 0 {
 		return fmt.Errorf("%d constraint violations found", errors)
