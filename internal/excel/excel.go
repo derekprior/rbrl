@@ -14,6 +14,9 @@ import (
 func Generate(cfg *config.Config, result *schedule.Result, slots []schedule.Slot, blackouts []schedule.BlackoutSlot) (*excelize.File, error) {
 	f := excelize.NewFile()
 
+	// Set default font for the workbook
+	f.SetDefaultFont("Arial")
+
 	if err := writeMasterSheet(f, cfg, result, slots, blackouts); err != nil {
 		return nil, fmt.Errorf("writing master sheet: %w", err)
 	}
@@ -76,7 +79,7 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 	}
 
 	headerStyle, _ := f.NewStyle(&excelize.Style{
-		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF"},
+		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF", Size: 16, Family: "Arial"},
 		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#4472C4"}},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
@@ -88,7 +91,11 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 
 	blackoutStyle, _ := f.NewStyle(&excelize.Style{
 		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#D9D9D9"}},
-		Font: &excelize.Font{Color: "#808080", Italic: true},
+		Font: &excelize.Font{Color: "#808080", Italic: true, Size: 16, Family: "Arial"},
+	})
+
+	cellStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Size: 16, Family: "Arial"},
 	})
 
 	// Build field name -> column index (0-based into field list)
@@ -168,16 +175,20 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 			for col := 1; col <= len(headers); col++ {
 				f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), blackoutStyle)
 			}
+		} else if cellStyle != 0 {
+			for col := 1; col <= len(headers); col++ {
+				f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), cellStyle)
+			}
 		}
 	}
 
-	// Set column widths
-	f.SetColWidth(sheet, "A", "A", 12)
-	f.SetColWidth(sheet, "B", "B", 6)
-	f.SetColWidth(sheet, "C", "C", 8)
+	// Set column widths (sized for Arial 16)
+	f.SetColWidth(sheet, "A", "A", 18)
+	f.SetColWidth(sheet, "B", "B", 8)
+	f.SetColWidth(sheet, "C", "C", 10)
 	for i := range fieldNames {
 		col := colLetter(i + 4)
-		f.SetColWidth(sheet, col, col, 22)
+		f.SetColWidth(sheet, col, col, 30)
 	}
 
 	return nil
@@ -194,7 +205,7 @@ func writeTeamSheets(f *excelize.File, cfg *config.Config, result *schedule.Resu
 		}
 
 		headerStyle, _ := f.NewStyle(&excelize.Style{
-			Font:      &excelize.Font{Bold: true},
+			Font:      &excelize.Font{Bold: true, Color: "#FFFFFF", Size: 16, Family: "Arial"},
 			Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#4472C4"}},
 			Alignment: &excelize.Alignment{Horizontal: "center"},
 		})
@@ -234,6 +245,10 @@ func writeTeamSheets(f *excelize.File, cfg *config.Config, result *schedule.Resu
 			return games[i].time < games[j].time
 		})
 
+		cellStyle, _ := f.NewStyle(&excelize.Style{
+			Font: &excelize.Font{Size: 16, Family: "Arial"},
+		})
+
 		for i, g := range games {
 			row := i + 2
 			f.SetCellValue(sheet, cellRef(1, row), g.date.Format("01/02/2006"))
@@ -243,10 +258,15 @@ func writeTeamSheets(f *excelize.File, cfg *config.Config, result *schedule.Resu
 			f.SetCellValue(sheet, cellRef(5, row), g.opponent)
 			f.SetCellValue(sheet, cellRef(6, row), g.homeAway)
 			f.SetCellValue(sheet, cellRef(7, row), g.label)
+			if cellStyle != 0 {
+				for col := 1; col <= len(headers); col++ {
+					f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), cellStyle)
+				}
+			}
 		}
 
-		// Set column widths
-		widths := map[string]float64{"A": 12, "B": 6, "C": 8, "D": 22, "E": 12, "F": 10, "G": 10}
+		// Set column widths (sized for Arial 16)
+		widths := map[string]float64{"A": 18, "B": 8, "C": 10, "D": 28, "E": 16, "F": 14, "G": 14}
 		for col, w := range widths {
 			f.SetColWidth(sheet, col, col, w)
 		}
