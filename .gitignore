@@ -1,0 +1,8 @@
+# Binaries
+/rbrl
+
+# Generated output
+*.xlsx
+
+# OS files
+.DS_Store
