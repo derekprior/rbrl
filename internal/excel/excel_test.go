@@ -1,6 +1,7 @@
 package excel
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -141,16 +142,13 @@ func TestGenerateWorkbook(t *testing.T) {
 		}
 	})
 
-	t.Run("team sheet has correct games", func(t *testing.T) {
-		rows, _ := f.GetRows("Angels")
-		gameRows := 0
-		for _, row := range rows[1:] { // skip header
-			if len(row) >= 5 && row[4] != "" {
-				gameRows++
-			}
+	t.Run("team sheet has formula", func(t *testing.T) {
+		formula, _ := f.GetCellFormula("Angels", "A2")
+		if formula == "" {
+			t.Error("Angels sheet A2 should have a formula")
 		}
-		if gameRows != 1 {
-			t.Errorf("Angels sheet has %d games, want 1", gameRows)
+		if !strings.Contains(formula, "FILTER") || !strings.Contains(formula, "Angels") {
+			t.Errorf("formula should reference FILTER and team name, got: %s", formula)
 		}
 	})
 
