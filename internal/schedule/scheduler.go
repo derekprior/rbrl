@@ -186,6 +186,9 @@ func (s *scheduler) buildFailureError(best *scheduler) error {
 	}
 	var reasons []reasonCount
 	for r, c := range best.rejections {
+		if r == rejectSlotUsed {
+			continue
+		}
 		reasons = append(reasons, reasonCount{r, c})
 	}
 	// Sort by count descending
