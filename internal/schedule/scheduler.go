@@ -135,7 +135,7 @@ func (s *scheduler) run() error {
 			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 		})
 
-		if candidate.trySchedule(shuffled) {
+		if candidate.trySchedule(shuffled, rng) {
 			score := candidate.softScore()
 			if score < bestScore {
 				bestScore = score
@@ -194,21 +194,215 @@ func (s *scheduler) buildFailureError(best *scheduler) error {
 	return fmt.Errorf("%s", msg)
 }
 
-func (s *scheduler) trySchedule(games []strategy.Game) bool {
-	for _, game := range games {
+func (s *scheduler) trySchedule(games []strategy.Game, rng *rand.Rand) bool {
+	remaining := make([]strategy.Game, len(games))
+	copy(remaining, games)
+
+	// Phase 1: Schedule Saturdays — all teams play every Saturday
+	remaining = s.scheduleSaturdays(remaining, rng)
+
+	// Phase 2: Schedule Sundays — balanced across teams
+	remaining = s.scheduleSundays(remaining, rng)
+
+	// Phase 3: Fill remaining games into weekday slots
+	for _, game := range remaining {
 		if !s.assignGame(game) {
 			s.stuckOnGame = &game
 			s.unscheduled = append(s.unscheduled, game)
-			// Keep trying remaining games for better diagnostics
-			for _, g := range games[len(s.assignments)+len(s.unscheduled):] {
-				if !s.assignGame(g) {
-					s.unscheduled = append(s.unscheduled, g)
-				}
-			}
-			return false
 		}
 	}
-	return true
+
+	return len(s.unscheduled) == 0
+}
+
+// scheduleSaturdays assigns games to Saturday slots so every team plays each Saturday.
+func (s *scheduler) scheduleSaturdays(games []strategy.Game, rng *rand.Rand) []strategy.Game {
+	teams := s.cfg.AllTeams()
+	saturdays := s.slotDates(time.Saturday)
+
+	scheduled := make(map[int]bool) // index into games
+
+	for _, sat := range saturdays {
+		satSlots := s.slotsForDate(sat)
+		if len(satSlots) == 0 {
+			continue
+		}
+
+		// Find a perfect matching: 5 games covering all teams
+		match := s.findPerfectMatch(games, scheduled, teams, rng)
+		if match == nil {
+			continue
+		}
+
+		for _, gi := range match {
+			game := games[gi]
+			// Find the best Saturday slot for this game
+			bestSlot := -1
+			bestScore := math.MaxFloat64
+			for _, si := range satSlots {
+				slot := s.slots[si]
+				sk := slotKey{slot.Date, slot.Time, slot.Field}
+				if s.usedSlots[sk] {
+					continue
+				}
+				if _, ok := s.hardConstraintCheck(game, slot); !ok {
+					continue
+				}
+				score := s.scoreSlot(game, slot)
+				if score < bestScore {
+					bestScore = score
+					bestSlot = si
+				}
+			}
+			if bestSlot >= 0 {
+				s.assign(game, s.slots[bestSlot])
+				scheduled[gi] = true
+			}
+		}
+	}
+
+	// Return unscheduled games
+	var remaining []strategy.Game
+	for i, g := range games {
+		if !scheduled[i] {
+			remaining = append(remaining, g)
+		}
+	}
+	return remaining
+}
+
+// findPerfectMatch finds len(teams)/2 games from the pool that cover all teams.
+func (s *scheduler) findPerfectMatch(games []strategy.Game, used map[int]bool, teams []string, rng *rand.Rand) []int {
+	needed := len(teams) / 2
+
+	// Shuffle indices for randomness
+	indices := make([]int, 0, len(games))
+	for i := range games {
+		if !used[i] {
+			indices = append(indices, i)
+		}
+	}
+	rng.Shuffle(len(indices), func(i, j int) {
+		indices[i], indices[j] = indices[j], indices[i]
+	})
+
+	teamUsed := make(map[string]bool)
+	var match []int
+
+	for _, i := range indices {
+		g := games[i]
+		if teamUsed[g.Home] || teamUsed[g.Away] {
+			continue
+		}
+		match = append(match, i)
+		teamUsed[g.Home] = true
+		teamUsed[g.Away] = true
+		if len(match) == needed {
+			return match
+		}
+	}
+
+	return nil // couldn't find a perfect match
+}
+
+// scheduleSundays assigns games to Sunday slots, balancing across teams.
+func (s *scheduler) scheduleSundays(games []strategy.Game, rng *rand.Rand) []strategy.Game {
+	sundays := s.slotDates(time.Sunday)
+	scheduled := make(map[int]bool)
+
+	for _, sun := range sundays {
+		sunSlots := s.slotsForDate(sun)
+		if len(sunSlots) == 0 {
+			continue
+		}
+
+		// Determine how many games we can play this Sunday
+		availableSlots := 0
+		for _, si := range sunSlots {
+			sk := slotKey{s.slots[si].Date, s.slots[si].Time, s.slots[si].Field}
+			if !s.usedSlots[sk] {
+				availableSlots++
+			}
+		}
+		maxGames := availableSlots
+		if maxGames > s.cfg.Rules.MaxGamesPerTimeslot {
+			maxGames = s.cfg.Rules.MaxGamesPerTimeslot
+		}
+
+		// Pick games favoring teams with fewer Sunday games
+		for gamesScheduled := 0; gamesScheduled < maxGames; gamesScheduled++ {
+			bestGame := -1
+			bestSlot := -1
+			bestScore := math.MaxFloat64
+
+			for i, game := range games {
+				if scheduled[i] {
+					continue
+				}
+
+				sunHome := s.sundayGames(game.Home)
+				sunAway := s.sundayGames(game.Away)
+				gameScore := float64(sunHome+sunAway) * 10
+
+				for _, si := range sunSlots {
+					slot := s.slots[si]
+					sk := slotKey{slot.Date, slot.Time, slot.Field}
+					if s.usedSlots[sk] {
+						continue
+					}
+					if _, ok := s.hardConstraintCheck(game, slot); !ok {
+						continue
+					}
+					score := gameScore + s.scoreSlot(game, slot)
+					if score < bestScore {
+						bestScore = score
+						bestGame = i
+						bestSlot = si
+					}
+				}
+			}
+
+			if bestGame < 0 {
+				break
+			}
+
+			s.assign(games[bestGame], s.slots[bestSlot])
+			scheduled[bestGame] = true
+		}
+	}
+
+	var remaining []strategy.Game
+	for i, g := range games {
+		if !scheduled[i] {
+			remaining = append(remaining, g)
+		}
+	}
+	return remaining
+}
+
+// slotDates returns sorted unique dates for a given weekday across available slots.
+func (s *scheduler) slotDates(day time.Weekday) []time.Time {
+	seen := make(map[time.Time]bool)
+	var dates []time.Time
+	for _, slot := range s.slots {
+		if slot.Date.Weekday() == day && !seen[slot.Date] {
+			seen[slot.Date] = true
+			dates = append(dates, slot.Date)
+		}
+	}
+	sortDatesInPlace(dates)
+	return dates
+}
+
+// slotsForDate returns indices of slots on a given date.
+func (s *scheduler) slotsForDate(date time.Time) []int {
+	var indices []int
+	for i, slot := range s.slots {
+		if slot.Date.Equal(date) {
+			indices = append(indices, i)
+		}
+	}
+	return indices
 }
 
 func (s *scheduler) assignGame(game strategy.Game) bool {
