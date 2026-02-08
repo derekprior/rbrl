@@ -127,7 +127,7 @@ func (s *scheduler) run() error {
 	bestScore := math.MaxFloat64
 	var bestFailure *scheduler
 
-	for attempt := range 10 {
+	for attempt := range 50 {
 		candidate := newScheduler(s.cfg, s.slots, s.games)
 		shuffled := make([]strategy.Game, len(s.games))
 		copy(shuffled, s.games)
@@ -206,6 +206,9 @@ func (s *scheduler) trySchedule(games []strategy.Game, rng *rand.Rand) bool {
 	remaining = s.scheduleSundays(remaining, rng)
 
 	// Phase 3: Fill remaining games into weekday slots
+	// Sort by difficulty: games with fewer available slots go first
+	s.sortByDifficulty(remaining)
+
 	for _, game := range remaining {
 		if !s.assignGame(game) {
 			s.stuckOnGame = &game
@@ -214,6 +217,37 @@ func (s *scheduler) trySchedule(games []strategy.Game, rng *rand.Rand) bool {
 	}
 
 	return len(s.unscheduled) == 0
+}
+
+// sortByDifficulty orders games so those with fewer available slots come first.
+func (s *scheduler) sortByDifficulty(games []strategy.Game) {
+	counts := make([]int, len(games))
+	for i, game := range games {
+		counts[i] = s.countAvailableSlots(game)
+	}
+	// Simple insertion sort (small N)
+	for i := 1; i < len(games); i++ {
+		for j := i; j > 0 && counts[j] < counts[j-1]; j-- {
+			games[j], games[j-1] = games[j-1], games[j]
+			counts[j], counts[j-1] = counts[j-1], counts[j]
+		}
+	}
+}
+
+// countAvailableSlots returns how many slots a game could currently be assigned to.
+func (s *scheduler) countAvailableSlots(game strategy.Game) int {
+	count := 0
+	for _, slot := range s.slots {
+		sk := slotKey{slot.Date, slot.Time, slot.Field}
+		if s.usedSlots[sk] {
+			continue
+		}
+		if _, ok := s.hardConstraintCheck(game, slot); !ok {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 // scheduleSaturdays assigns games to Saturday slots so every team plays each Saturday.
