@@ -260,7 +260,7 @@ func checkRematchProximity(cfg *config.Config, games []parsedGame) []Violation {
 }
 
 func check3In4Days(cfg *config.Config, games []parsedGame) []Violation {
-	if !cfg.Guidelines.Avoid3In4Days {
+	if !cfg.Rules.Max3In4Days {
 		return nil
 	}
 
@@ -271,7 +271,7 @@ func check3In4Days(cfg *config.Config, games []parsedGame) []Violation {
 		for i := 2; i < len(dates); i++ {
 			if dates[i].Sub(dates[i-2]).Hours()/24 <= 3 {
 				violations = append(violations, Violation{
-					Type: "warning",
+					Type: "error",
 					Message: fmt.Sprintf("%s plays 3 games in 4 days: %s, %s, %s",
 						team, dates[i-2].Format("01/02"), dates[i-1].Format("01/02"), dates[i].Format("01/02")),
 				})

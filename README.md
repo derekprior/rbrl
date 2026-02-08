@@ -73,9 +73,9 @@ All season parameters are defined in a YAML config file. See
 - `max_consecutive_days` — No team plays more than N consecutive days
 - `max_games_per_week` — No team plays more than N games per ISO week
 - `max_games_per_timeslot` — Max simultaneous games (umpire availability)
+- `max_3_in_4_days` — No team plays 3 games in any 4-day window
 
 **Soft constraints** (preferred; violations reported as warnings):
-- `avoid_3_in_4_days` — Prefer not scheduling 3 games in any 4-day window
 - `min_days_between_same_matchup` — Prefer spacing out rematches
 - `balance_sunday_games` — Spread Sunday games evenly across teams
 - `balance_pace` — Keep teams roughly even in games played throughout the season

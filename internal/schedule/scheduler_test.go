@@ -45,7 +45,6 @@ func schedulerTestConfig() *config.Config {
 			MaxGamesPerTimeslot:   2,
 		},
 		Guidelines: config.Guidelines{
-			Avoid3In4Days:             true,
 			MinDaysBetweenSameMatchup: 14,
 			BalanceSundayGames:        true,
 			BalancePace:               true,

@@ -767,15 +767,6 @@ func (s *scheduler) scoreSlot(game strategy.Game, slot Slot) float64 {
 		}
 	}
 
-	// Avoid 3 games in 4 days
-	if s.cfg.Guidelines.Avoid3In4Days {
-		for _, team := range []string{game.Home, game.Away} {
-			if s.gamesInWindow(team, slot.Date, 4) >= 2 {
-				score += 20
-			}
-		}
-	}
-
 	// Balance Sunday games
 	if s.cfg.Guidelines.BalanceSundayGames && slot.Date.Weekday() == time.Sunday {
 		maxAllowed := s.minSundayGames() + 2

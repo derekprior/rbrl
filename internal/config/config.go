@@ -86,7 +86,6 @@ type Rules struct {
 }
 
 type Guidelines struct {
-	Avoid3In4Days             bool `yaml:"avoid_3_in_4_days"`
 	MinDaysBetweenSameMatchup int  `yaml:"min_days_between_same_matchup"`
 	BalanceSundayGames        bool `yaml:"balance_sunday_games"`
 	BalancePace               bool `yaml:"balance_pace"`

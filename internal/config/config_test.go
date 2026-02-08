@@ -54,7 +54,6 @@ rules:
   max_games_per_timeslot: 2
 
 guidelines:
-  avoid_3_in_4_days: true
   min_days_between_same_matchup: 14
   balance_sunday_games: true
   balance_pace: true
@@ -149,9 +148,6 @@ func TestLoadConfig(t *testing.T) {
 	})
 
 	t.Run("guidelines", func(t *testing.T) {
-		if !cfg.Guidelines.Avoid3In4Days {
-			t.Error("avoid_3_in_4_days should be true")
-		}
 		if cfg.Guidelines.MinDaysBetweenSameMatchup != 14 {
 			t.Errorf("min days between rematch = %d, want 14", cfg.Guidelines.MinDaysBetweenSameMatchup)
 		}

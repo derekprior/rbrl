@@ -51,7 +51,6 @@ func fullTestConfig() *config.Config {
 			MaxGamesPerTimeslot:   2,
 		},
 		Guidelines: config.Guidelines{
-			Avoid3In4Days:             true,
 			MinDaysBetweenSameMatchup: 14,
 			BalanceSundayGames:        true,
 			BalancePace:               true,
@@ -121,7 +120,6 @@ func defaultRules() config.Rules {
 
 func defaultGuidelines() config.Guidelines {
 	return config.Guidelines{
-		Avoid3In4Days:             true,
 		MinDaysBetweenSameMatchup: 14,
 		BalanceSundayGames:        true,
 		BalancePace:               true,
@@ -243,20 +241,20 @@ func TestCheckMaxGamesPerTimeslot(t *testing.T) {
 }
 
 func TestCheck3In4Days(t *testing.T) {
-	cfg := &config.Config{Guidelines: config.Guidelines{Avoid3In4Days: true}}
+	cfg := &config.Config{Rules: config.Rules{Max3In4Days: true}}
 
-	t.Run("no warning for 2 games in 4 days", func(t *testing.T) {
+	t.Run("no violation for 2 games in 4 days", func(t *testing.T) {
 		games := []parsedGame{
 			{Row: 2, Date: d(5, 1), Home: "Angels", Away: "Cubs"},
 			{Row: 3, Date: d(5, 4), Home: "Angels", Away: "Padres"},
 		}
 		v := check3In4Days(cfg, games)
 		if len(v) != 0 {
-			t.Errorf("expected 0 warnings, got %d", len(v))
+			t.Errorf("expected 0 violations, got %d", len(v))
 		}
 	})
 
-	t.Run("warning for 3 games in 4 days", func(t *testing.T) {
+	t.Run("error for 3 games in 4 days", func(t *testing.T) {
 		games := []parsedGame{
 			{Row: 2, Date: d(5, 1), Home: "Angels", Away: "Cubs"},
 			{Row: 3, Date: d(5, 2), Home: "Angels", Away: "Padres"},
@@ -264,15 +262,15 @@ func TestCheck3In4Days(t *testing.T) {
 		}
 		v := check3In4Days(cfg, games)
 		if len(v) == 0 {
-			t.Error("expected warning for 3 games in 4 days")
+			t.Error("expected error for 3 games in 4 days")
 		}
-		if v[0].Type != "warning" {
-			t.Errorf("expected warning, got %s", v[0].Type)
+		if v[0].Type != "error" {
+			t.Errorf("expected error, got %s", v[0].Type)
 		}
 	})
 
-	t.Run("skipped when guideline disabled", func(t *testing.T) {
-		cfg2 := &config.Config{Guidelines: config.Guidelines{Avoid3In4Days: false}}
+	t.Run("skipped when rule disabled", func(t *testing.T) {
+		cfg2 := &config.Config{Rules: config.Rules{Max3In4Days: false}}
 		games := []parsedGame{
 			{Row: 2, Date: d(5, 1), Home: "Angels", Away: "Cubs"},
 			{Row: 3, Date: d(5, 2), Home: "Angels", Away: "Padres"},
@@ -280,7 +278,7 @@ func TestCheck3In4Days(t *testing.T) {
 		}
 		v := check3In4Days(cfg2, games)
 		if len(v) != 0 {
-			t.Errorf("expected 0 warnings when disabled, got %d", len(v))
+			t.Errorf("expected 0 violations when disabled, got %d", len(v))
 		}
 	})
 }
