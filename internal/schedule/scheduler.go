@@ -20,6 +20,7 @@ type Assignment struct {
 type Result struct {
 	Assignments []Assignment
 	Warnings    []string
+	TeamGames   map[string]int // games scheduled per team
 }
 
 // Schedule assigns games to slots respecting constraints.
@@ -31,6 +32,7 @@ func Schedule(cfg *config.Config, slots []Slot, games []strategy.Game) (*Result,
 	return &Result{
 		Assignments: s.assignments,
 		Warnings:    s.collectWarnings(),
+		TeamGames:   s.teamGames,
 	}, nil
 }
 
