@@ -86,24 +86,30 @@ func TestGenerateWorkbook(t *testing.T) {
 		if val != "Date" {
 			t.Errorf("A1 = %q, want Date", val)
 		}
+		// Field columns start at D — "Field" isn't unique so full names used
+		val, _ = f.GetCellValue("Master Schedule", "D1")
+		if val != "Field A" {
+			t.Errorf("D1 = %q, want Field A", val)
+		}
 		val, _ = f.GetCellValue("Master Schedule", "E1")
-		if val != "Home" {
-			t.Errorf("E1 = %q, want Home", val)
+		if val != "Field B" {
+			t.Errorf("E1 = %q, want Field B", val)
 		}
 	})
 
 	t.Run("master sheet has game rows", func(t *testing.T) {
-		// Check that at least one game row exists with team names
 		found := false
 		rows, _ := f.GetRows("Master Schedule")
-		for _, row := range rows[1:] { // skip header
-			if len(row) >= 6 && row[4] == "Angels" && row[5] == "Cubs" {
-				found = true
-				break
+		for _, row := range rows[1:] {
+			for i := 3; i < len(row); i++ {
+				if row[i] == "Cubs @ Angels" {
+					found = true
+					break
+				}
 			}
 		}
 		if !found {
-			t.Error("Angels vs Cubs game not found in master sheet")
+			t.Error("Cubs @ Angels game not found in master sheet")
 		}
 	})
 
@@ -111,9 +117,11 @@ func TestGenerateWorkbook(t *testing.T) {
 		found := false
 		rows, _ := f.GetRows("Master Schedule")
 		for _, row := range rows[1:] {
-			if len(row) >= 8 && row[7] == "Mother's Day" {
-				found = true
-				break
+			for i := 3; i < len(row); i++ {
+				if row[i] == "Mother's Day" {
+					found = true
+					break
+				}
 			}
 		}
 		if !found {

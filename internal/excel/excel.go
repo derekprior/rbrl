@@ -26,17 +26,55 @@ func Generate(cfg *config.Config, result *schedule.Result, slots []schedule.Slot
 	return f, nil
 }
 
+func fieldColumnName(name string, allNames []string) string {
+	first := name
+	for i, c := range name {
+		if c == ' ' {
+			first = name[:i]
+			break
+		}
+	}
+	// Check if first word is unique
+	count := 0
+	for _, n := range allNames {
+		word := n
+		for i, c := range n {
+			if c == ' ' {
+				word = n[:i]
+				break
+			}
+		}
+		if word == first {
+			count++
+		}
+	}
+	if count > 1 {
+		return name
+	}
+	return first
+}
+
 func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Result, slots []schedule.Slot, blackouts []schedule.BlackoutSlot) error {
 	sheet := "Master Schedule"
 	f.NewSheet(sheet)
 
-	headers := []string{"Date", "Day", "Time", "Field", "Home", "Away", "Game", "Notes"}
-	for i, h := range headers {
-		cell := cellRef(i+1, 1)
-		f.SetCellValue(sheet, cell, h)
+	// Build field column names
+	var fieldNames []string
+	for _, field := range cfg.Fields {
+		fieldNames = append(fieldNames, field.Name)
+	}
+	fieldCols := make([]string, len(fieldNames))
+	for i, name := range fieldNames {
+		fieldCols[i] = fieldColumnName(name, fieldNames)
 	}
 
-	// Style for headers
+	// Headers: Date, Day, Time, <field1>, <field2>, ...
+	headers := []string{"Date", "Day", "Time"}
+	headers = append(headers, fieldCols...)
+	for i, h := range headers {
+		f.SetCellValue(sheet, cellRef(i+1, 1), h)
+	}
+
 	headerStyle, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Bold: true, Color: "#FFFFFF"},
 		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#4472C4"}},
@@ -48,13 +86,18 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 		}
 	}
 
-	// Style for blackout rows
 	blackoutStyle, _ := f.NewStyle(&excelize.Style{
 		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"#D9D9D9"}},
 		Font: &excelize.Font{Color: "#808080", Italic: true},
 	})
 
-	// Build assignment lookup: slot -> assignment
+	// Build field name -> column index (0-based into field list)
+	fieldIndex := make(map[string]int)
+	for i, name := range fieldNames {
+		fieldIndex[name] = i
+	}
+
+	// Build assignment lookup: (date, time, field) -> assignment
 	type slotKey struct {
 		date  time.Time
 		time  string
@@ -62,86 +105,79 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 	}
 	assignmentMap := make(map[slotKey]schedule.Assignment)
 	for _, a := range result.Assignments {
-		sk := slotKey{a.Slot.Date, a.Slot.Time, a.Slot.Field}
-		assignmentMap[sk] = a
+		assignmentMap[slotKey{a.Slot.Date, a.Slot.Time, a.Slot.Field}] = a
 	}
 
-	// Build blackout lookup: slot -> reason
+	// Build blackout lookup: (date, time, field) -> reason
 	blackoutMap := make(map[slotKey]string)
 	for _, b := range blackouts {
-		sk := slotKey{b.Date, b.Time, b.Field}
-		blackoutMap[sk] = b.Reason
+		blackoutMap[slotKey{b.Date, b.Time, b.Field}] = b.Reason
 	}
 
-	// Merge all slots and blackout slots into a unified row list
-	type rowData struct {
-		date    time.Time
-		time    string
-		field   string
-		isBlack bool
-		reason  string
-		assign  *schedule.Assignment
+	// Collect all unique (date, time) pairs from both slots and blackouts
+	type timeSlot struct {
+		date time.Time
+		time string
 	}
-
-	var rows []rowData
-
-	// Available slots
+	seen := make(map[timeSlot]bool)
+	var timeSlots []timeSlot
 	for _, s := range slots {
-		sk := slotKey{s.Date, s.Time, s.Field}
-		rd := rowData{date: s.Date, time: s.Time, field: s.Field}
-		if a, ok := assignmentMap[sk]; ok {
-			rd.assign = &a
+		ts := timeSlot{s.Date, s.Time}
+		if !seen[ts] {
+			seen[ts] = true
+			timeSlots = append(timeSlots, ts)
 		}
-		rows = append(rows, rd)
 	}
-
-	// Blackout slots
 	for _, b := range blackouts {
-		rows = append(rows, rowData{
-			date:    b.Date,
-			time:    b.Time,
-			field:   b.Field,
-			isBlack: true,
-			reason:  b.Reason,
-		})
+		ts := timeSlot{b.Date, b.Time}
+		if !seen[ts] {
+			seen[ts] = true
+			timeSlots = append(timeSlots, ts)
+		}
 	}
 
-	// Sort by date, time, field
-	sort.Slice(rows, func(i, j int) bool {
-		if !rows[i].date.Equal(rows[j].date) {
-			return rows[i].date.Before(rows[j].date)
+	sort.Slice(timeSlots, func(i, j int) bool {
+		if !timeSlots[i].date.Equal(timeSlots[j].date) {
+			return timeSlots[i].date.Before(timeSlots[j].date)
 		}
-		if rows[i].time != rows[j].time {
-			return rows[i].time < rows[j].time
-		}
-		return rows[i].field < rows[j].field
+		return timeSlots[i].time < timeSlots[j].time
 	})
 
-	for i, rd := range rows {
-		row := i + 2 // 1-indexed, skip header
-		f.SetCellValue(sheet, cellRef(1, row), rd.date.Format("01/02/2006"))
-		f.SetCellValue(sheet, cellRef(2, row), rd.date.Format("Mon"))
-		f.SetCellValue(sheet, cellRef(3, row), rd.time)
-		f.SetCellValue(sheet, cellRef(4, row), rd.field)
+	for i, ts := range timeSlots {
+		row := i + 2
+		f.SetCellValue(sheet, cellRef(1, row), ts.date.Format("01/02/2006"))
+		f.SetCellValue(sheet, cellRef(2, row), ts.date.Format("Mon"))
+		f.SetCellValue(sheet, cellRef(3, row), ts.time)
 
-		if rd.isBlack {
-			f.SetCellValue(sheet, cellRef(8, row), rd.reason)
-			if blackoutStyle != 0 {
-				for col := 1; col <= len(headers); col++ {
-					f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), blackoutStyle)
-				}
+		allBlackout := true
+		for fi, fname := range fieldNames {
+			col := fi + 4 // 1-indexed, after Date/Day/Time
+			sk := slotKey{ts.date, ts.time, fname}
+
+			if a, ok := assignmentMap[sk]; ok {
+				f.SetCellValue(sheet, cellRef(col, row), fmt.Sprintf("%s @ %s", a.Game.Away, a.Game.Home))
+				allBlackout = false
+			} else if reason, ok := blackoutMap[sk]; ok {
+				f.SetCellValue(sheet, cellRef(col, row), reason)
+			} else {
+				allBlackout = false
 			}
-		} else if rd.assign != nil {
-			f.SetCellValue(sheet, cellRef(5, row), rd.assign.Game.Home)
-			f.SetCellValue(sheet, cellRef(6, row), rd.assign.Game.Away)
-			f.SetCellValue(sheet, cellRef(7, row), rd.assign.Game.Label)
+		}
+
+		if allBlackout {
+			for col := 1; col <= len(headers); col++ {
+				f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), blackoutStyle)
+			}
 		}
 	}
 
 	// Set column widths
-	widths := map[string]float64{"A": 12, "B": 6, "C": 8, "D": 22, "E": 12, "F": 12, "G": 10, "H": 24}
-	for col, w := range widths {
-		f.SetColWidth(sheet, col, col, w)
+	f.SetColWidth(sheet, "A", "A", 12)
+	f.SetColWidth(sheet, "B", "B", 6)
+	f.SetColWidth(sheet, "C", "C", 8)
+	for i := range fieldNames {
+		col := colLetter(i + 4)
+		f.SetColWidth(sheet, col, col, 22)
 	}
 
 	return nil

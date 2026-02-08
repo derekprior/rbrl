@@ -63,31 +63,68 @@ func readAssignments(f *excelize.File) ([]parsedGame, error) {
 		return nil, fmt.Errorf("reading Master Schedule: %w", err)
 	}
 
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("Master Schedule is empty")
+	}
+
+	// Header row determines field columns (index 3+)
+	header := rows[0]
+	type fieldCol struct {
+		index int
+		name  string
+	}
+	var fieldCols []fieldCol
+	for i := 3; i < len(header); i++ {
+		fieldCols = append(fieldCols, fieldCol{i, header[i]})
+	}
+
 	var games []parsedGame
 	for i, row := range rows {
-		if i == 0 { // skip header
+		if i == 0 {
 			continue
 		}
-		if len(row) < 6 || row[4] == "" {
-			continue // empty slot or blackout
+		if len(row) < 3 || row[0] == "" {
+			continue
 		}
 
 		date, err := time.Parse("01/02/2006", row[0])
 		if err != nil {
 			continue
 		}
+		timeStr := row[2]
 
-		games = append(games, parsedGame{
-			Row:   i + 1, // 1-indexed
-			Date:  date,
-			Time:  row[2],
-			Field: row[3],
-			Home:  row[4],
-			Away:  row[5],
-		})
+		for _, fc := range fieldCols {
+			if fc.index >= len(row) || row[fc.index] == "" {
+				continue
+			}
+			cell := row[fc.index]
+			away, home, ok := parseGameCell(cell)
+			if !ok {
+				continue // blackout/reservation text, not a game
+			}
+			games = append(games, parsedGame{
+				Row:   i + 1,
+				Date:  date,
+				Time:  timeStr,
+				Field: fc.name,
+				Home:  home,
+				Away:  away,
+			})
+		}
 	}
 
 	return games, nil
+}
+
+// parseGameCell parses "Away @ Home" and returns (away, home, true).
+// Returns ("", "", false) if the cell doesn't match the game format.
+func parseGameCell(cell string) (away, home string, ok bool) {
+	for i := 0; i < len(cell)-2; i++ {
+		if cell[i] == ' ' && cell[i+1] == '@' && cell[i+2] == ' ' {
+			return cell[:i], cell[i+3:], true
+		}
+	}
+	return "", "", false
 }
 
 func checkMaxGamesPerDay(cfg *config.Config, games []parsedGame) []Violation {
