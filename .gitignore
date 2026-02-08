@@ -4,6 +4,10 @@
 
 # Generated output
 *.xlsx
+!internal/**/testdata/*.xlsx
+
+# Config (generate with: rbrl init)
+/config.yaml
 
 # OS files
 .DS_Store
