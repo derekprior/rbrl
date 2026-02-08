@@ -100,6 +100,87 @@ func GenerateSlots(cfg *config.Config) []Slot {
 	return slots
 }
 
+// GenerateOverflowSlots builds available slots for the overflow period
+// (the day after EndDate through OverflowEndDate). Returns nil if no
+// overflow period is configured.
+func GenerateOverflowSlots(cfg *config.Config) []Slot {
+	if cfg.Season.OverflowEndDate == nil {
+		return nil
+	}
+
+	blackoutDates := make(map[time.Time]bool)
+	for _, b := range cfg.Season.BlackoutDates {
+		blackoutDates[b.Date.Time] = true
+	}
+
+	holidayDates := make(map[time.Time]bool)
+	for _, h := range cfg.TimeSlots.HolidayDates {
+		holidayDates[h.Time] = true
+	}
+
+	// Build reservation lookups (same as GenerateSlots)
+	type resKey struct {
+		field string
+		date  time.Time
+		time  string
+	}
+	type fieldDateKey struct {
+		field string
+		date  time.Time
+	}
+	reservations := make(map[resKey]bool)
+	fullDayRes := make(map[fieldDateKey]bool)
+	for _, f := range cfg.Fields {
+		for _, r := range f.Reservations {
+			for _, rd := range r.Dates() {
+				if len(r.Times) == 0 {
+					fullDayRes[fieldDateKey{f.Name, rd}] = true
+				} else {
+					for _, t := range r.Times {
+						reservations[resKey{f.Name, rd, t}] = true
+					}
+				}
+			}
+		}
+	}
+
+	var slots []Slot
+	d := cfg.Season.EndDate.Time.AddDate(0, 0, 1) // day after end_date
+	for !d.After(cfg.Season.OverflowEndDate.Time) {
+		if blackoutDates[d] {
+			d = d.AddDate(0, 0, 1)
+			continue
+		}
+
+		times := timesForDay(d, holidayDates, cfg.TimeSlots)
+		for _, t := range times {
+			for _, f := range cfg.Fields {
+				if fullDayRes[fieldDateKey{f.Name, d}] {
+					continue
+				}
+				if reservations[resKey{f.Name, d, t}] {
+					continue
+				}
+				slots = append(slots, Slot{Date: d, Time: t, Field: f.Name})
+			}
+		}
+
+		d = d.AddDate(0, 0, 1)
+	}
+
+	sort.Slice(slots, func(i, j int) bool {
+		if !slots[i].Date.Equal(slots[j].Date) {
+			return slots[i].Date.Before(slots[j].Date)
+		}
+		if slots[i].Time != slots[j].Time {
+			return slots[i].Time < slots[j].Time
+		}
+		return slots[i].Field < slots[j].Field
+	})
+
+	return slots
+}
+
 // GenerateBlackoutSlots returns all slots that are blacked out (season-wide
 // blackouts and field reservations) for display on the master sheet.
 func GenerateBlackoutSlots(cfg *config.Config) []BlackoutSlot {

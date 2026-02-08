@@ -59,7 +59,7 @@ func TestScheduleAllGames(t *testing.T) {
 	strat := &strategy.DivisionWeighted{}
 	games := strat.GenerateMatchups(cfg.Divisions)
 
-	result, err := Schedule(cfg, slots, games)
+	result, err := Schedule(cfg, slots, nil, games)
 	if err != nil {
 		t.Fatalf("Schedule() error: %v", err)
 	}

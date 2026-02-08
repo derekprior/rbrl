@@ -34,8 +34,8 @@ type Result struct {
 
 // Schedule assigns games to slots respecting constraints.
 // On failure, returns a partial Result with the best attempt alongside the error.
-func Schedule(cfg *config.Config, slots []Slot, games []strategy.Game) (*Result, error) {
-	s := newScheduler(cfg, slots, games)
+func Schedule(cfg *config.Config, slots []Slot, overflowSlots []Slot, games []strategy.Game) (*Result, error) {
+	s := newScheduler(cfg, slots, overflowSlots, games)
 	if err := s.run(); err != nil {
 		warnings, metrics := s.buildMetrics()
 		return &Result{
@@ -67,9 +67,10 @@ const (
 )
 
 type scheduler struct {
-	cfg   *config.Config
-	slots []Slot
-	games []strategy.Game
+	cfg           *config.Config
+	slots         []Slot
+	overflowSlots []Slot
+	games         []strategy.Game
 
 	assignments []Assignment
 	usedSlots   map[slotKey]bool
@@ -106,17 +107,18 @@ func normalizeMatchup(a, b string) matchupKey {
 	return matchupKey{a, b}
 }
 
-func newScheduler(cfg *config.Config, slots []Slot, games []strategy.Game) *scheduler {
+func newScheduler(cfg *config.Config, slots []Slot, overflowSlots []Slot, games []strategy.Game) *scheduler {
 	return &scheduler{
-		cfg:         cfg,
-		slots:       slots,
-		games:       games,
-		usedSlots:   make(map[slotKey]bool),
-		teamDates:   make(map[string][]time.Time),
-		teamGames:   make(map[string]int),
-		slotTimeCnt: make(map[timeKey]int),
-		matchupDate: make(map[matchupKey]time.Time),
-		rejections:  make(map[rejectionReason]int),
+		cfg:           cfg,
+		slots:         slots,
+		overflowSlots: overflowSlots,
+		games:         games,
+		usedSlots:     make(map[slotKey]bool),
+		teamDates:     make(map[string][]time.Time),
+		teamGames:     make(map[string]int),
+		slotTimeCnt:   make(map[timeKey]int),
+		matchupDate:   make(map[matchupKey]time.Time),
+		rejections:    make(map[rejectionReason]int),
 	}
 }
 
@@ -128,7 +130,7 @@ func (s *scheduler) run() error {
 	var bestFailure *scheduler
 
 	for attempt := range 50 {
-		candidate := newScheduler(s.cfg, s.slots, s.games)
+		candidate := newScheduler(s.cfg, s.slots, s.overflowSlots, s.games)
 		shuffled := make([]strategy.Game, len(s.games))
 		copy(shuffled, s.games)
 		rng = rand.New(rand.NewSource(int64(42 + attempt)))
@@ -214,8 +216,13 @@ func (s *scheduler) trySchedule(games []strategy.Game, rng *rand.Rand) bool {
 	s.sortByDifficulty(remaining)
 
 	remaining = s.scheduleWithBacktracking(remaining)
-	s.unscheduled = remaining
 
+	// Phase 4: Place remaining games in overflow slots as last resort
+	if len(remaining) > 0 && len(s.overflowSlots) > 0 {
+		remaining = s.scheduleOverflow(remaining)
+	}
+
+	s.unscheduled = remaining
 	return len(s.unscheduled) == 0
 }
 
@@ -240,6 +247,31 @@ func (s *scheduler) scheduleWithBacktracking(games []strategy.Game) []strategy.G
 		unscheduled = append(unscheduled, game)
 	}
 
+	return unscheduled
+}
+
+// scheduleOverflow places remaining games into overflow slots, preferring
+// the earliest dates to minimize how late the season extends.
+func (s *scheduler) scheduleOverflow(games []strategy.Game) []strategy.Game {
+	var unscheduled []strategy.Game
+	for _, game := range games {
+		placed := false
+		for _, slot := range s.overflowSlots {
+			sk := slotKey{slot.Date, slot.Time, slot.Field}
+			if s.usedSlots[sk] {
+				continue
+			}
+			if _, ok := s.hardConstraintCheck(game, slot); !ok {
+				continue
+			}
+			s.assign(game, slot)
+			placed = true
+			break
+		}
+		if !placed {
+			unscheduled = append(unscheduled, game)
+		}
+	}
 	return unscheduled
 }
 
@@ -876,7 +908,59 @@ func (s *scheduler) softScore() float64 {
 		}
 	}
 
+	// Overflow usage — massive penalty per overflow day used, plus per game
+	overflowDays := s.overflowDaysUsed()
+	score += float64(overflowDays) * 1000
+	score += float64(s.overflowGamesCount()) * 100
+
 	return score
+}
+
+// overflowDaysUsed returns the number of unique dates in the overflow period
+// that have games assigned.
+func (s *scheduler) overflowDaysUsed() int {
+	if s.cfg.Season.OverflowEndDate == nil {
+		return 0
+	}
+	endDate := s.cfg.Season.EndDate.Time
+	days := make(map[time.Time]bool)
+	for _, a := range s.assignments {
+		if a.Slot.Date.After(endDate) {
+			days[a.Slot.Date] = true
+		}
+	}
+	return len(days)
+}
+
+// overflowGamesCount returns the number of games scheduled in the overflow period.
+func (s *scheduler) overflowGamesCount() int {
+	if s.cfg.Season.OverflowEndDate == nil {
+		return 0
+	}
+	endDate := s.cfg.Season.EndDate.Time
+	count := 0
+	for _, a := range s.assignments {
+		if a.Slot.Date.After(endDate) {
+			count++
+		}
+	}
+	return count
+}
+
+// latestOverflowDate returns the latest date used in the overflow period,
+// or zero time if no overflow games.
+func (s *scheduler) latestOverflowDate() time.Time {
+	if s.cfg.Season.OverflowEndDate == nil {
+		return time.Time{}
+	}
+	endDate := s.cfg.Season.EndDate.Time
+	var latest time.Time
+	for _, a := range s.assignments {
+		if a.Slot.Date.After(endDate) && a.Slot.Date.After(latest) {
+			latest = a.Slot.Date
+		}
+	}
+	return latest
 }
 
 func (s *scheduler) buildMetrics() ([]string, map[string]*TeamMetrics) {
@@ -965,6 +1049,14 @@ func (s *scheduler) buildMetrics() ([]string, map[string]*TeamMetrics) {
 	if maxSun-minSun > 1 {
 		warnings = append(warnings, fmt.Sprintf(
 			"Sunday game imbalance: min %d, max %d across teams", minSun, maxSun))
+	}
+
+	// Overflow usage
+	if overflowDays := s.overflowDaysUsed(); overflowDays > 0 {
+		latest := s.latestOverflowDate()
+		warnings = append(warnings, fmt.Sprintf(
+			"Overflow: %d game(s) on %d day(s) past end of regular season (through %s)",
+			s.overflowGamesCount(), overflowDays, latest.Format("01/02")))
 	}
 
 	return warnings, metrics

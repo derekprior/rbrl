@@ -28,9 +28,10 @@ type BlackoutDate struct {
 }
 
 type Season struct {
-	StartDate     Date           `yaml:"start_date"`
-	EndDate       Date           `yaml:"end_date"`
-	BlackoutDates []BlackoutDate `yaml:"blackout_dates"`
+	StartDate       Date           `yaml:"start_date"`
+	EndDate         Date           `yaml:"end_date"`
+	OverflowEndDate *Date          `yaml:"overflow_end_date"`
+	BlackoutDates   []BlackoutDate `yaml:"blackout_dates"`
 }
 
 type Reservation struct {
@@ -136,6 +137,12 @@ func (c *Config) validate() error {
 		return fmt.Errorf("end date %s must be after start date %s",
 			c.Season.EndDate.Time.Format("2006-01-02"),
 			c.Season.StartDate.Time.Format("2006-01-02"))
+	}
+
+	if c.Season.OverflowEndDate != nil && !c.Season.OverflowEndDate.Time.After(c.Season.EndDate.Time) {
+		return fmt.Errorf("overflow_end_date %s must be after end_date %s",
+			c.Season.OverflowEndDate.Time.Format("2006-01-02"),
+			c.Season.EndDate.Time.Format("2006-01-02"))
 	}
 
 	if len(c.Divisions) == 0 {

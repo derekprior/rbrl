@@ -104,6 +104,11 @@ season:
   start_date: "2026-04-25"
   end_date: "2026-05-31"
 
+  # Overflow period: games that can't fit in the regular season may be
+  # scheduled between end_date and overflow_end_date as a last resort.
+  # The scheduler minimizes overflow usage, preferring fewer and earlier days.
+  overflow_end_date: "2026-06-05"
+
   # Blackout dates are full days where no games will be scheduled on any field.
   # Common examples: holidays, town events, etc.
   blackout_dates:
@@ -221,11 +226,18 @@ func runGenerate(configPath, outputPath string) error {
 
 	games := strat.GenerateMatchups(cfg.Divisions)
 	slots := schedule.GenerateSlots(cfg)
+	overflowSlots := schedule.GenerateOverflowSlots(cfg)
 	blackouts := schedule.GenerateBlackoutSlots(cfg)
 
-	fmt.Printf("Scheduling %d games into %d available slots...\n", len(games), len(slots))
+	totalSlots := len(slots) + len(overflowSlots)
+	if len(overflowSlots) > 0 {
+		fmt.Printf("Scheduling %d games into %d available slots (%d regular + %d overflow)...\n",
+			len(games), totalSlots, len(slots), len(overflowSlots))
+	} else {
+		fmt.Printf("Scheduling %d games into %d available slots...\n", len(games), len(slots))
+	}
 
-	result, schedErr := schedule.Schedule(cfg, slots, games)
+	result, schedErr := schedule.Schedule(cfg, slots, overflowSlots, games)
 
 	if schedErr != nil {
 		fmt.Fprintf(os.Stderr, "⚠ %s\n", schedErr)
@@ -250,7 +262,8 @@ func runGenerate(configPath, outputPath string) error {
 		fmt.Println("\n✓ No guideline violations")
 	}
 
-	f, err := excel.Generate(cfg, result, slots, blackouts)
+	allSlots := append(slots, overflowSlots...)
+	f, err := excel.Generate(cfg, result, allSlots, blackouts)
 	if err != nil {
 		return fmt.Errorf("generating Excel: %w", err)
 	}
