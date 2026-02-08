@@ -231,9 +231,11 @@ func runGenerate(configPath, outputPath string) error {
 
 	fmt.Printf("✓ All %d games scheduled\n", len(result.Assignments))
 
-	fmt.Println("\nGames scheduled per team:")
+	fmt.Println("\nPer Team Metrics:")
+	fmt.Printf("  %-15s %6s %4s %4s %s\n", "Team", "Games", "Sat", "Sun", "Violations")
 	for _, team := range cfg.AllTeams() {
-		fmt.Printf("  %-15s %d\n", team, result.TeamGames[team])
+		m := result.TeamMetrics[team]
+		fmt.Printf("  %-15s %6d %4d %4d %d\n", team, m.Games, m.Saturday, m.Sunday, len(m.Violations))
 	}
 
 	if len(result.Warnings) > 0 {

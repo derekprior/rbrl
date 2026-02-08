@@ -16,11 +16,20 @@ type Assignment struct {
 	Slot Slot
 }
 
+// TeamMetrics holds per-team schedule statistics.
+type TeamMetrics struct {
+	Games      int
+	Saturday   int
+	Sunday     int
+	Violations []string
+}
+
 // Result is the output of the scheduling process.
 type Result struct {
 	Assignments []Assignment
 	Warnings    []string
 	TeamGames   map[string]int // games scheduled per team
+	TeamMetrics map[string]*TeamMetrics
 }
 
 // Schedule assigns games to slots respecting constraints.
@@ -29,10 +38,12 @@ func Schedule(cfg *config.Config, slots []Slot, games []strategy.Game) (*Result,
 	if err := s.run(); err != nil {
 		return nil, err
 	}
+	warnings, metrics := s.buildMetrics()
 	return &Result{
 		Assignments: s.assignments,
-		Warnings:    s.collectWarnings(),
+		Warnings:    warnings,
 		TeamGames:   s.teamGames,
+		TeamMetrics: metrics,
 	}, nil
 }
 
@@ -164,15 +175,16 @@ func (s *scheduler) buildFailureError(best *scheduler) error {
 		msg += fmt.Sprintf("\n  • %s vs %s", g.Home, g.Away)
 	}
 
-	// Per-team games scheduled
-	msg += "\n\nGames scheduled per team:"
+	// Per-team metrics
+	warnings, metrics := best.buildMetrics()
+	msg += "\n\nPer Team Metrics:"
+	msg += fmt.Sprintf("\n  %-15s %6s %4s %4s %s", "Team", "Games", "Sat", "Sun", "Violations")
 	for _, team := range s.cfg.AllTeams() {
-		count := best.teamGames[team]
-		msg += fmt.Sprintf("\n  %-15s %d", team, count)
+		m := metrics[team]
+		msg += fmt.Sprintf("\n  %-15s %6d %4d %4d %d", team, m.Games, m.Saturday, m.Sunday, len(m.Violations))
 	}
 
 	// Guideline violations for scheduled games
-	warnings := best.collectWarnings()
 	if len(warnings) > 0 {
 		msg += fmt.Sprintf("\n\nGuideline violations (%d):", len(warnings))
 		for _, w := range warnings {
@@ -429,28 +441,41 @@ func (s *scheduler) softScore() float64 {
 	return score
 }
 
-func (s *scheduler) collectWarnings() []string {
+func (s *scheduler) buildMetrics() ([]string, map[string]*TeamMetrics) {
 	var warnings []string
+	metrics := make(map[string]*TeamMetrics)
+
+	// Initialize metrics for all teams
+	for _, team := range s.cfg.AllTeams() {
+		m := &TeamMetrics{Games: s.teamGames[team]}
+		for _, d := range s.teamDates[team] {
+			switch d.Weekday() {
+			case time.Saturday:
+				m.Saturday++
+			case time.Sunday:
+				m.Sunday++
+			}
+		}
+		metrics[team] = m
+	}
 
 	// Check 3-in-4-days
 	for _, team := range s.cfg.AllTeams() {
 		dates := s.teamDates[team]
 		for i := 2; i < len(dates); i++ {
 			if dates[i].Sub(dates[i-2]).Hours()/24 <= 3 {
-				warnings = append(warnings, fmt.Sprintf(
-					"%s plays 3 games in 4 days: %s, %s, %s",
+				w := fmt.Sprintf("%s plays 3 games in 4 days: %s, %s, %s",
 					team,
 					dates[i-2].Format("01/02"),
 					dates[i-1].Format("01/02"),
-					dates[i].Format("01/02")))
+					dates[i].Format("01/02"))
+				warnings = append(warnings, w)
+				metrics[team].Violations = append(metrics[team].Violations, w)
 			}
 		}
 	}
 
 	// Check rematch proximity
-	type matchDates struct {
-		first, second time.Time
-	}
 	matchups := make(map[matchupKey][]time.Time)
 	for _, a := range s.assignments {
 		mk := normalizeMatchup(a.Game.Home, a.Game.Away)
@@ -461,26 +486,24 @@ func (s *scheduler) collectWarnings() []string {
 		for i := 1; i < len(dates); i++ {
 			daysBetween := dates[i].Sub(dates[i-1]).Hours() / 24
 			if daysBetween < float64(s.cfg.Guidelines.MinDaysBetweenSameMatchup) {
-				warnings = append(warnings, fmt.Sprintf(
-					"%s vs %s rematch after only %.0f days (min %d): %s and %s",
+				w := fmt.Sprintf("%s vs %s rematch after only %.0f days (min %d): %s and %s",
 					mk.a, mk.b, daysBetween, s.cfg.Guidelines.MinDaysBetweenSameMatchup,
-					dates[i-1].Format("01/02"), dates[i].Format("01/02")))
+					dates[i-1].Format("01/02"), dates[i].Format("01/02"))
+				warnings = append(warnings, w)
+				metrics[mk.a].Violations = append(metrics[mk.a].Violations, w)
+				metrics[mk.b].Violations = append(metrics[mk.b].Violations, w)
 			}
 		}
 	}
 
 	// Sunday balance
-	sundayCounts := make(map[string]int)
-	for _, team := range s.cfg.AllTeams() {
-		sundayCounts[team] = s.sundayGames(team)
-	}
 	maxSun, minSun := 0, math.MaxInt
-	for _, c := range sundayCounts {
-		if c > maxSun {
-			maxSun = c
+	for _, m := range metrics {
+		if m.Sunday > maxSun {
+			maxSun = m.Sunday
 		}
-		if c < minSun {
-			minSun = c
+		if m.Sunday < minSun {
+			minSun = m.Sunday
 		}
 	}
 	if maxSun-minSun > 1 {
@@ -488,7 +511,7 @@ func (s *scheduler) collectWarnings() []string {
 			"Sunday game imbalance: min %d, max %d across teams", minSun, maxSun))
 	}
 
-	return warnings
+	return warnings, metrics
 }
 
 func insertSorted(dates []time.Time, d time.Time) []time.Time {
