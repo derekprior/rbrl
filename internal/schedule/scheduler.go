@@ -34,6 +34,34 @@ func Schedule(cfg *config.Config, slots []Slot, games []strategy.Game) (*Result,
 	}, nil
 }
 
+// rejectionReason categorizes why a slot was rejected for a game.
+type rejectionReason int
+
+const (
+	rejectSlotUsed rejectionReason = iota
+	rejectTimeslotCap
+	rejectDoublePlay
+	rejectConsecutiveDays
+	rejectMaxWeekGames
+)
+
+func (r rejectionReason) String() string {
+	switch r {
+	case rejectSlotUsed:
+		return "slot already used"
+	case rejectTimeslotCap:
+		return "max games per timeslot"
+	case rejectDoublePlay:
+		return "team already plays that day"
+	case rejectConsecutiveDays:
+		return "would exceed max consecutive days"
+	case rejectMaxWeekGames:
+		return "team at max games for the week"
+	default:
+		return "unknown"
+	}
+}
+
 type scheduler struct {
 	cfg   *config.Config
 	slots []Slot
@@ -45,6 +73,11 @@ type scheduler struct {
 	teamGames   map[string]int           // team -> total games scheduled
 	slotTimeCnt map[timeKey]int          // (date, time) -> games in that timeslot
 	matchupDate map[matchupKey]time.Time // normalized pair -> last date played
+
+	// diagnostics for failure reporting
+	rejections  map[rejectionReason]int
+	unscheduled []strategy.Game
+	stuckOnGame *strategy.Game
 }
 
 type slotKey struct {
@@ -79,17 +112,16 @@ func newScheduler(cfg *config.Config, slots []Slot, games []strategy.Game) *sche
 		teamGames:   make(map[string]int),
 		slotTimeCnt: make(map[timeKey]int),
 		matchupDate: make(map[matchupKey]time.Time),
+		rejections:  make(map[rejectionReason]int),
 	}
 }
 
 func (s *scheduler) run() error {
-	// Shuffle games to avoid bias in ordering, then sort by scheduling
-	// difficulty (teams with fewer remaining options first).
 	rng := rand.New(rand.NewSource(42))
 
-	// Multiple attempts with different shuffles
 	bestResult := (*scheduler)(nil)
 	bestScore := math.MaxFloat64
+	var bestFailure *scheduler
 
 	for attempt := range 10 {
 		candidate := newScheduler(s.cfg, s.slots, s.games)
@@ -106,11 +138,16 @@ func (s *scheduler) run() error {
 				bestScore = score
 				bestResult = candidate
 			}
+		} else {
+			// Track the attempt that scheduled the most games
+			if bestFailure == nil || len(candidate.assignments) > len(bestFailure.assignments) {
+				bestFailure = candidate
+			}
 		}
 	}
 
 	if bestResult == nil {
-		return fmt.Errorf("could not schedule all %d games into %d available slots", len(s.games), len(s.slots))
+		return s.buildFailureError(bestFailure)
 	}
 
 	s.assignments = bestResult.assignments
@@ -122,9 +159,68 @@ func (s *scheduler) run() error {
 	return nil
 }
 
+func (s *scheduler) buildFailureError(best *scheduler) error {
+	msg := fmt.Sprintf("could not schedule all %d games into %d available slots", len(s.games), len(s.slots))
+
+	if best == nil {
+		return fmt.Errorf("%s", msg)
+	}
+
+	msg += fmt.Sprintf("\n\nBest attempt: scheduled %d of %d games (%d unscheduled)",
+		len(best.assignments), len(s.games), len(best.unscheduled))
+
+	if best.stuckOnGame != nil {
+		msg += fmt.Sprintf("\nFirst game that failed: %s vs %s",
+			best.stuckOnGame.Home, best.stuckOnGame.Away)
+	}
+
+	msg += "\n\nUnscheduled games:"
+	for _, g := range best.unscheduled {
+		msg += fmt.Sprintf("\n  • %s vs %s", g.Home, g.Away)
+	}
+
+	msg += "\n\nSlot rejection reasons (across all slot evaluations):"
+	type reasonCount struct {
+		reason rejectionReason
+		count  int
+	}
+	var reasons []reasonCount
+	for r, c := range best.rejections {
+		reasons = append(reasons, reasonCount{r, c})
+	}
+	// Sort by count descending
+	for i := 0; i < len(reasons); i++ {
+		for j := i + 1; j < len(reasons); j++ {
+			if reasons[j].count > reasons[i].count {
+				reasons[i], reasons[j] = reasons[j], reasons[i]
+			}
+		}
+	}
+	for _, rc := range reasons {
+		msg += fmt.Sprintf("\n  %6d  %s", rc.count, rc.reason)
+	}
+
+	// Per-team games scheduled
+	msg += "\n\nGames scheduled per team:"
+	for _, team := range s.cfg.AllTeams() {
+		count := best.teamGames[team]
+		msg += fmt.Sprintf("\n  %-15s %d", team, count)
+	}
+
+	return fmt.Errorf("%s", msg)
+}
+
 func (s *scheduler) trySchedule(games []strategy.Game) bool {
 	for _, game := range games {
 		if !s.assignGame(game) {
+			s.stuckOnGame = &game
+			s.unscheduled = append(s.unscheduled, game)
+			// Keep trying remaining games for better diagnostics
+			for _, g := range games[len(s.assignments)+len(s.unscheduled):] {
+				if !s.assignGame(g) {
+					s.unscheduled = append(s.unscheduled, g)
+				}
+			}
 			return false
 		}
 	}
@@ -138,10 +234,12 @@ func (s *scheduler) assignGame(game strategy.Game) bool {
 	for i, slot := range s.slots {
 		sk := slotKey{slot.Date, slot.Time, slot.Field}
 		if s.usedSlots[sk] {
+			s.rejections[rejectSlotUsed]++
 			continue
 		}
 
-		if !s.hardConstraintsMet(game, slot) {
+		if reason, ok := s.hardConstraintCheck(game, slot); !ok {
+			s.rejections[reason]++
 			continue
 		}
 
@@ -175,18 +273,18 @@ func (s *scheduler) assign(game strategy.Game, slot Slot) {
 	s.matchupDate[mk] = slot.Date
 }
 
-func (s *scheduler) hardConstraintsMet(game strategy.Game, slot Slot) bool {
+func (s *scheduler) hardConstraintCheck(game strategy.Game, slot Slot) (rejectionReason, bool) {
 	// Max games per timeslot
 	tk := timeKey{slot.Date, slot.Time}
 	if s.slotTimeCnt[tk] >= s.cfg.Rules.MaxGamesPerTimeslot {
-		return false
+		return rejectTimeslotCap, false
 	}
 
 	// No team plays twice in one day
 	for _, team := range []string{game.Home, game.Away} {
 		for _, d := range s.teamDates[team] {
 			if d.Equal(slot.Date) {
-				return false
+				return rejectDoublePlay, false
 			}
 		}
 	}
@@ -194,7 +292,7 @@ func (s *scheduler) hardConstraintsMet(game strategy.Game, slot Slot) bool {
 	// No team plays 3 consecutive days
 	for _, team := range []string{game.Home, game.Away} {
 		if s.wouldMakeConsecutive(team, slot.Date, s.cfg.Rules.MaxConsecutiveDays) {
-			return false
+			return rejectConsecutiveDays, false
 		}
 	}
 
@@ -209,11 +307,11 @@ func (s *scheduler) hardConstraintsMet(game strategy.Game, slot Slot) bool {
 			}
 		}
 		if count >= s.cfg.Rules.MaxGamesPerWeek {
-			return false
+			return rejectMaxWeekGames, false
 		}
 	}
 
-	return true
+	return 0, true
 }
 
 func (s *scheduler) wouldMakeConsecutive(team string, newDate time.Time, maxConsec int) bool {
