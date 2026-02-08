@@ -33,9 +33,10 @@ func main() {
 
 	var outputFile string
 	generateCmd := &cobra.Command{
-		Use:   "generate [config.yaml]",
-		Short: "Generate a schedule from a config file",
-		Args:  cobra.MaximumNArgs(1),
+		Use:          "generate [config.yaml]",
+		Short:        "Generate a schedule from a config file",
+		Args:         cobra.MaximumNArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configPath, err := resolveConfigPath(args)
 			if err != nil {
@@ -47,9 +48,10 @@ func main() {
 	generateCmd.Flags().StringVarP(&outputFile, "output", "o", "schedule.xlsx", "Output Excel file path")
 
 	validateCmd := &cobra.Command{
-		Use:   "validate [config.yaml] <schedule.xlsx>",
-		Short: "Validate a schedule against config rules",
-		Args:  cobra.RangeArgs(1, 2),
+		Use:          "validate [config.yaml] <schedule.xlsx>",
+		Short:        "Validate a schedule against config rules",
+		Args:         cobra.RangeArgs(1, 2),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 2 {
 				return runValidate(args[0], args[1])
@@ -64,9 +66,10 @@ func main() {
 
 	var initOutputPath string
 	initCmd := &cobra.Command{
-		Use:   "init",
-		Short: "Create a starter config.yaml in the current directory",
-		Args:  cobra.NoArgs,
+		Use:          "init",
+		Short:        "Create a starter config.yaml in the current directory",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runInit(initOutputPath)
 		},
