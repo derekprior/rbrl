@@ -93,6 +93,11 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 		Font: &excelize.Font{Size: 16, Family: "Arial"},
 	})
 
+	fieldCellStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Size: 16, Family: "Arial"},
+		Alignment: &excelize.Alignment{Horizontal: "center"},
+	})
+
 	// Build field name -> column index (0-based into field list)
 	fieldIndex := make(map[string]int)
 	for i, name := range fieldNames {
@@ -163,8 +168,11 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 		}
 
 		if cellStyle != 0 {
-			for col := 1; col <= len(headers); col++ {
+			for col := 1; col <= 3; col++ {
 				f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), cellStyle)
+			}
+			for col := 4; col <= len(headers); col++ {
+				f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), fieldCellStyle)
 			}
 		}
 	}
