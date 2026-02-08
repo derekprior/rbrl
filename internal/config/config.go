@@ -28,8 +28,8 @@ type BlackoutDate struct {
 }
 
 type Season struct {
-	StartDate    Date           `yaml:"start_date"`
-	EndDate      Date           `yaml:"end_date"`
+	StartDate     Date           `yaml:"start_date"`
+	EndDate       Date           `yaml:"end_date"`
 	BlackoutDates []BlackoutDate `yaml:"blackout_dates"`
 }
 

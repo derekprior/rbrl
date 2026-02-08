@@ -41,9 +41,9 @@ type scheduler struct {
 
 	assignments []Assignment
 	usedSlots   map[slotKey]bool
-	teamDates   map[string][]time.Time // team -> sorted game dates
-	teamGames   map[string]int         // team -> total games scheduled
-	slotTimeCnt map[timeKey]int        // (date, time) -> games in that timeslot
+	teamDates   map[string][]time.Time   // team -> sorted game dates
+	teamGames   map[string]int           // team -> total games scheduled
+	slotTimeCnt map[timeKey]int          // (date, time) -> games in that timeslot
 	matchupDate map[matchupKey]time.Time // normalized pair -> last date played
 }
 

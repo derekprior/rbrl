@@ -16,6 +16,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Format check
+        run: make fmt-check
+
       - name: Build
         run: make build
 
