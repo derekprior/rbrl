@@ -19,6 +19,11 @@ func date(y, m, d int) config.Date {
 	return config.Date{Time: time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC)}
 }
 
+func datePtr(y, m, d int) *config.Date {
+	dt := date(y, m, d)
+	return &dt
+}
+
 func testConfig() *config.Config {
 	return &config.Config{
 		Season: config.Season{
@@ -36,13 +41,26 @@ func testConfig() *config.Config {
 				Name: "Moscariello Ballpark",
 				Reservations: []config.Reservation{
 					{
-						Date:   date(2026, 5, 15),
+						Date:   datePtr(2026, 5, 15),
 						Times:  []string{"17:45"},
 						Reason: "Varsity",
 					},
+					{
+						StartDate: datePtr(2026, 5, 18),
+						EndDate:   datePtr(2026, 5, 20),
+						Reason:    "Tournament",
+					},
 				},
 			},
-			{Name: "Symonds Field"},
+			{
+				Name: "Symonds Field",
+				Reservations: []config.Reservation{
+					{
+						Date:   datePtr(2026, 5, 2),
+						Reason: "Reserved",
+					},
+				},
+			},
 			{Name: "Washington Park"},
 		},
 		TimeSlots: config.TimeSlots{
@@ -125,6 +143,46 @@ func TestGenerateSlots(t *testing.T) {
 		for _, s := range sunSlots {
 			if s.Time != "17:00" {
 				t.Errorf("Sunday slot time = %q, want 17:00", s.Time)
+			}
+		}
+	})
+
+	t.Run("full-day reservation removes all slots for that field", func(t *testing.T) {
+		// May 2 is a Saturday. Symonds has a full-day reservation (no times specified).
+		sat := mustDate("2026-05-02")
+		var satSymonds []Slot
+		for _, s := range slots {
+			if s.Date.Equal(sat) && s.Field == "Symonds Field" {
+				satSymonds = append(satSymonds, s)
+			}
+		}
+		if len(satSymonds) != 0 {
+			t.Errorf("expected no Symonds slots on 5/2, got %d", len(satSymonds))
+		}
+		// Other fields should still have Saturday slots
+		var satOther []Slot
+		for _, s := range slots {
+			if s.Date.Equal(sat) && s.Field != "Symonds Field" {
+				satOther = append(satOther, s)
+			}
+		}
+		if len(satOther) != 6 { // 2 fields × 3 Saturday times
+			t.Errorf("other field slots on 5/2 = %d, want 6", len(satOther))
+		}
+	})
+
+	t.Run("date range reservation removes all days in range", func(t *testing.T) {
+		// May 18-20 (Mon-Wed) Moscariello has a Tournament reservation
+		for _, ds := range []string{"2026-05-18", "2026-05-19", "2026-05-20"} {
+			d := mustDate(ds)
+			var moscSlots []Slot
+			for _, s := range slots {
+				if s.Date.Equal(d) && s.Field == "Moscariello Ballpark" {
+					moscSlots = append(moscSlots, s)
+				}
+			}
+			if len(moscSlots) != 0 {
+				t.Errorf("expected no Moscariello slots on %s, got %d", ds, len(moscSlots))
 			}
 		}
 	})

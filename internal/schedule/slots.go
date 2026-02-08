@@ -36,16 +36,28 @@ func GenerateSlots(cfg *config.Config) []Slot {
 	}
 
 	// Build reservation lookup: field+date+time -> true
+	// Also track full-day reservations: field+date -> true
 	type resKey struct {
 		field string
 		date  time.Time
 		time  string
 	}
+	type fieldDateKey struct {
+		field string
+		date  time.Time
+	}
 	reservations := make(map[resKey]bool)
+	fullDayRes := make(map[fieldDateKey]bool)
 	for _, f := range cfg.Fields {
 		for _, r := range f.Reservations {
-			for _, t := range r.Times {
-				reservations[resKey{f.Name, r.Date.Time, t}] = true
+			for _, rd := range r.Dates() {
+				if len(r.Times) == 0 {
+					fullDayRes[fieldDateKey{f.Name, rd}] = true
+				} else {
+					for _, t := range r.Times {
+						reservations[resKey{f.Name, rd, t}] = true
+					}
+				}
 			}
 		}
 	}
@@ -62,6 +74,9 @@ func GenerateSlots(cfg *config.Config) []Slot {
 
 		for _, t := range times {
 			for _, f := range cfg.Fields {
+				if fullDayRes[fieldDateKey{f.Name, d}] {
+					continue
+				}
 				if reservations[resKey{f.Name, d, t}] {
 					continue
 				}
@@ -113,13 +128,27 @@ func GenerateBlackoutSlots(cfg *config.Config) []BlackoutSlot {
 	// Field reservations
 	for _, f := range cfg.Fields {
 		for _, r := range f.Reservations {
-			for _, t := range r.Times {
-				blackouts = append(blackouts, BlackoutSlot{
-					Date:   r.Date.Time,
-					Time:   t,
-					Field:  f.Name,
-					Reason: r.Reason,
-				})
+			for _, rd := range r.Dates() {
+				if len(r.Times) == 0 {
+					times := timesForDay(rd, holidayDates, cfg.TimeSlots)
+					for _, t := range times {
+						blackouts = append(blackouts, BlackoutSlot{
+							Date:   rd,
+							Time:   t,
+							Field:  f.Name,
+							Reason: r.Reason,
+						})
+					}
+				} else {
+					for _, t := range r.Times {
+						blackouts = append(blackouts, BlackoutSlot{
+							Date:   rd,
+							Time:   t,
+							Field:  f.Name,
+							Reason: r.Reason,
+						})
+					}
+				}
 			}
 		}
 	}

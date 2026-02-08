@@ -34,9 +34,29 @@ type Season struct {
 }
 
 type Reservation struct {
-	Date   Date     `yaml:"date"`
-	Times  []string `yaml:"times"`
-	Reason string   `yaml:"reason"`
+	Date      *Date    `yaml:"date"`
+	StartDate *Date    `yaml:"start_date"`
+	EndDate   *Date    `yaml:"end_date"`
+	Times     []string `yaml:"times"`
+	Reason    string   `yaml:"reason"`
+}
+
+// Dates returns all dates covered by this reservation.
+// Supports single date (date:) or range (start_date:/end_date:).
+func (r *Reservation) Dates() []time.Time {
+	if r.StartDate != nil && r.EndDate != nil {
+		var dates []time.Time
+		d := r.StartDate.Time
+		for !d.After(r.EndDate.Time) {
+			dates = append(dates, d)
+			d = d.AddDate(0, 0, 1)
+		}
+		return dates
+	}
+	if r.Date != nil {
+		return []time.Time{r.Date.Time}
+	}
+	return nil
 }
 
 type Field struct {
@@ -57,23 +77,27 @@ type TimeSlots struct {
 }
 
 type Rules struct {
-	MaxGamesPerDayPerTeam    int  `yaml:"max_games_per_day_per_team"`
-	MaxConsecutiveDays       int  `yaml:"max_consecutive_days"`
-	MaxGamesPerWeek          int  `yaml:"max_games_per_week"`
-	MaxGamesPerTimeslot      int  `yaml:"max_games_per_timeslot"`
-	Avoid3In4Days            bool `yaml:"avoid_3_in_4_days"`
+	MaxGamesPerDayPerTeam int `yaml:"max_games_per_day_per_team"`
+	MaxConsecutiveDays    int `yaml:"max_consecutive_days"`
+	MaxGamesPerWeek       int `yaml:"max_games_per_week"`
+	MaxGamesPerTimeslot   int `yaml:"max_games_per_timeslot"`
+}
+
+type Guidelines struct {
+	Avoid3In4Days             bool `yaml:"avoid_3_in_4_days"`
 	MinDaysBetweenSameMatchup int  `yaml:"min_days_between_same_matchup"`
-	BalanceSundayGames       bool `yaml:"balance_sunday_games"`
-	BalancePace              bool `yaml:"balance_pace"`
+	BalanceSundayGames        bool `yaml:"balance_sunday_games"`
+	BalancePace               bool `yaml:"balance_pace"`
 }
 
 type Config struct {
-	Season    Season     `yaml:"season"`
-	Divisions []Division `yaml:"divisions"`
-	Fields    []Field    `yaml:"fields"`
-	TimeSlots TimeSlots  `yaml:"time_slots"`
-	Strategy  string     `yaml:"strategy"`
-	Rules     Rules      `yaml:"rules"`
+	Season     Season     `yaml:"season"`
+	Divisions  []Division `yaml:"divisions"`
+	Fields     []Field    `yaml:"fields"`
+	TimeSlots  TimeSlots  `yaml:"time_slots"`
+	Strategy   string     `yaml:"strategy"`
+	Rules      Rules      `yaml:"rules"`
+	Guidelines Guidelines `yaml:"guidelines"`
 }
 
 // AllTeams returns all team names across all divisions.
@@ -132,6 +156,26 @@ func (c *Config) validate() error {
 				return fmt.Errorf("team %q appears in both %q and %q divisions", team, prevDiv, div.Name)
 			}
 			seen[team] = div.Name
+		}
+	}
+
+	// Validate reservations
+	for _, f := range c.Fields {
+		for _, r := range f.Reservations {
+			hasDate := r.Date != nil
+			hasRange := r.StartDate != nil || r.EndDate != nil
+			if !hasDate && !hasRange {
+				return fmt.Errorf("field %q: reservation must have either 'date' or 'start_date'/'end_date'", f.Name)
+			}
+			if hasDate && hasRange {
+				return fmt.Errorf("field %q: reservation cannot have both 'date' and 'start_date'/'end_date'", f.Name)
+			}
+			if hasRange && (r.StartDate == nil || r.EndDate == nil) {
+				return fmt.Errorf("field %q: reservation with date range must have both 'start_date' and 'end_date'", f.Name)
+			}
+			if hasRange && !r.EndDate.Time.After(r.StartDate.Time) && r.EndDate.Time != r.StartDate.Time {
+				return fmt.Errorf("field %q: reservation end_date must be on or after start_date", f.Name)
+			}
 		}
 	}
 
