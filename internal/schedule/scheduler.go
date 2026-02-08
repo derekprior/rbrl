@@ -33,10 +33,17 @@ type Result struct {
 }
 
 // Schedule assigns games to slots respecting constraints.
+// On failure, returns a partial Result with the best attempt alongside the error.
 func Schedule(cfg *config.Config, slots []Slot, games []strategy.Game) (*Result, error) {
 	s := newScheduler(cfg, slots, games)
 	if err := s.run(); err != nil {
-		return nil, err
+		warnings, metrics := s.buildMetrics()
+		return &Result{
+			Assignments: s.assignments,
+			Warnings:    warnings,
+			TeamGames:   s.teamGames,
+			TeamMetrics: metrics,
+		}, err
 	}
 	warnings, metrics := s.buildMetrics()
 	return &Result{
@@ -143,6 +150,15 @@ func (s *scheduler) run() error {
 	}
 
 	if bestResult == nil {
+		// Copy best failure state so caller can access partial results
+		if bestFailure != nil {
+			s.assignments = bestFailure.assignments
+			s.usedSlots = bestFailure.usedSlots
+			s.teamDates = bestFailure.teamDates
+			s.teamGames = bestFailure.teamGames
+			s.slotTimeCnt = bestFailure.slotTimeCnt
+			s.matchupDate = bestFailure.matchupDate
+		}
 		return s.buildFailureError(bestFailure)
 	}
 
@@ -173,23 +189,6 @@ func (s *scheduler) buildFailureError(best *scheduler) error {
 	msg += "\n\nUnscheduled games:"
 	for _, g := range best.unscheduled {
 		msg += fmt.Sprintf("\n  • %s vs %s", g.Home, g.Away)
-	}
-
-	// Per-team metrics
-	warnings, metrics := best.buildMetrics()
-	msg += "\n\nPer Team Metrics:"
-	msg += fmt.Sprintf("\n  %-15s %6s %4s %4s %s", "Team", "Games", "Sat", "Sun", "Violations")
-	for _, team := range s.cfg.AllTeams() {
-		m := metrics[team]
-		msg += fmt.Sprintf("\n  %-15s %6d %4d %4d %d", team, m.Games, m.Saturday, m.Sunday, len(m.Violations))
-	}
-
-	// Guideline violations for scheduled games
-	if len(warnings) > 0 {
-		msg += fmt.Sprintf("\n\nGuideline violations (%d):", len(warnings))
-		for _, w := range warnings {
-			msg += fmt.Sprintf("\n  ⚠ %s", w)
-		}
 	}
 
 	return fmt.Errorf("%s", msg)

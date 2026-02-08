@@ -224,12 +224,14 @@ func runGenerate(configPath, outputPath string) error {
 
 	fmt.Printf("Scheduling %d games into %d available slots...\n", len(games), len(slots))
 
-	result, err := schedule.Schedule(cfg, slots, games)
-	if err != nil {
-		return fmt.Errorf("scheduling: %w", err)
-	}
+	result, schedErr := schedule.Schedule(cfg, slots, games)
 
-	fmt.Printf("✓ All %d games scheduled\n", len(result.Assignments))
+	if schedErr != nil {
+		fmt.Fprintf(os.Stderr, "⚠ %s\n", schedErr)
+		fmt.Fprintf(os.Stderr, "\nGenerating partial schedule...\n")
+	} else {
+		fmt.Printf("✓ All %d games scheduled\n", len(result.Assignments))
+	}
 
 	fmt.Println("\nPer Team Metrics:")
 	fmt.Printf("  %-15s %6s %4s %4s %s\n", "Team", "Games", "Sat", "Sun", "Violations")
@@ -257,6 +259,9 @@ func runGenerate(configPath, outputPath string) error {
 	}
 
 	fmt.Printf("\n✓ Schedule saved to %s\n", outputPath)
+	if schedErr != nil {
+		return fmt.Errorf("schedule is incomplete: %d of %d games scheduled", len(result.Assignments), len(games))
+	}
 	return nil
 }
 
