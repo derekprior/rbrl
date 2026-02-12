@@ -251,6 +251,21 @@ func TestGenerateBlackoutSlots(t *testing.T) {
 		}
 	})
 
+	t.Run("reservations before season start are excluded", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Fields[0].Reservations = append(cfg.Fields[0].Reservations, config.Reservation{
+			Date:   datePtr(2026, 4, 10),
+			Times:  []string{"17:45"},
+			Reason: "Pre-season",
+		})
+		bk := GenerateBlackoutSlots(cfg)
+		for _, b := range bk {
+			if b.Date.Equal(mustDate("2026-04-10")) {
+				t.Errorf("found blackout slot for pre-season reservation on %s", b.Date.Format("2006-01-02"))
+			}
+		}
+	})
+
 	t.Run("reservation slots included as blackouts", func(t *testing.T) {
 		found := false
 		for _, b := range blackouts {

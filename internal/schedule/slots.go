@@ -206,10 +206,19 @@ func GenerateBlackoutSlots(cfg *config.Config) []BlackoutSlot {
 		}
 	}
 
-	// Field reservations
+	// Determine effective season end (including overflow if configured)
+	effectiveEnd := cfg.Season.EndDate.Time
+	if cfg.Season.OverflowEndDate != nil {
+		effectiveEnd = cfg.Season.OverflowEndDate.Time
+	}
+
+	// Field reservations (only within season date range)
 	for _, f := range cfg.Fields {
 		for _, r := range f.Reservations {
 			for _, rd := range r.Dates() {
+				if rd.Before(cfg.Season.StartDate.Time) || rd.After(effectiveEnd) {
+					continue
+				}
 				if len(r.Times) == 0 {
 					times := timesForDay(rd, holidayDates, cfg.TimeSlots)
 					for _, t := range times {
