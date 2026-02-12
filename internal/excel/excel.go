@@ -3,7 +3,6 @@ package excel
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/derekprior/rbrl/internal/config"
@@ -18,17 +17,58 @@ func Generate(cfg *config.Config, result *schedule.Result, slots []schedule.Slot
 	// Set default font for the workbook
 	f.SetDefaultFont("Arial")
 
-	lastMasterRow, err := writeMasterSheet(f, cfg, result, slots, blackouts)
-	if err != nil {
+	if _, err := writeMasterSheet(f, cfg, result, slots, blackouts); err != nil {
 		return nil, fmt.Errorf("writing master sheet: %w", err)
 	}
 
-	if err := writeTeamSheets(f, cfg, lastMasterRow); err != nil {
+	// Build game entries from assignments for team sheets
+	var fieldNames []string
+	for _, field := range cfg.Fields {
+		fieldNames = append(fieldNames, field.Name)
+	}
+	var games []gameEntry
+	for _, a := range result.Assignments {
+		games = append(games, gameEntry{
+			Date:  a.Slot.Date,
+			Time:  a.Slot.Time,
+			Field: fieldColumnName(a.Slot.Field, fieldNames),
+			Home:  a.Game.Home,
+			Away:  a.Game.Away,
+		})
+	}
+
+	if err := writeTeamSheets(f, cfg, games); err != nil {
 		return nil, fmt.Errorf("writing team sheets: %w", err)
 	}
 
 	f.DeleteSheet("Sheet1")
 	return f, nil
+}
+
+// UpdateTeamSheets reads the master schedule from an existing xlsx file,
+// regenerates all per-team sheets with static values, and saves the file.
+func UpdateTeamSheets(path string, cfg *config.Config) error {
+	f, err := excelize.OpenFile(path)
+	if err != nil {
+		return fmt.Errorf("opening file: %w", err)
+	}
+	defer f.Close()
+
+	games, err := readGamesFromMaster(f)
+	if err != nil {
+		return err
+	}
+
+	// Delete existing team sheets
+	for _, team := range cfg.AllTeams() {
+		f.DeleteSheet(team)
+	}
+
+	if err := writeTeamSheets(f, cfg, games); err != nil {
+		return err
+	}
+
+	return f.SaveAs(path)
 }
 
 func fieldColumnName(name string, allNames []string) string {
@@ -211,13 +251,22 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 	return lastRow, nil
 }
 
-func writeTeamSheets(f *excelize.File, cfg *config.Config, lastMasterRow int) error {
-	masterSheet := "Master Schedule"
+type gameEntry struct {
+	Date  time.Time
+	Time  string
+	Field string
+	Home  string
+	Away  string
+}
 
-	var fieldNames []string
-	for _, field := range cfg.Fields {
-		fieldNames = append(fieldNames, field.Name)
-	}
+func writeTeamSheets(f *excelize.File, cfg *config.Config, games []gameEntry) error {
+	// Sort games by date then time
+	sort.Slice(games, func(i, j int) bool {
+		if !games[i].Date.Equal(games[j].Date) {
+			return games[i].Date.Before(games[j].Date)
+		}
+		return games[i].Time < games[j].Time
+	})
 
 	for _, team := range cfg.AllTeams() {
 		sheet := team
@@ -239,16 +288,37 @@ func writeTeamSheets(f *excelize.File, cfg *config.Config, lastMasterRow int) er
 			}
 		}
 
-		formula := buildTeamFormula(team, masterSheet, fieldNames, lastMasterRow)
-		f.SetCellFormula(sheet, "A2", formula)
-
-		// Set column style for data area (Arial 16)
 		cellStyle, _ := f.NewStyle(&excelize.Style{
 			Font: &excelize.Font{Size: 16, Family: "Arial"},
 		})
-		if cellStyle != 0 {
-			lastCol := colLetter(len(headers))
-			f.SetColStyle(sheet, fmt.Sprintf("A:%s", lastCol), cellStyle)
+
+		row := 2
+		for _, g := range games {
+			if g.Home != team && g.Away != team {
+				continue
+			}
+
+			opponent := g.Away
+			ha := "Home"
+			if g.Away == team {
+				opponent = g.Home
+				ha = "Away"
+			}
+
+			f.SetCellValue(sheet, cellRef(1, row), g.Date.Format("01/02/2006"))
+			f.SetCellValue(sheet, cellRef(2, row), g.Date.Format("Mon"))
+			f.SetCellValue(sheet, cellRef(3, row), g.Time)
+			f.SetCellValue(sheet, cellRef(4, row), g.Field)
+			f.SetCellValue(sheet, cellRef(5, row), opponent)
+			f.SetCellValue(sheet, cellRef(6, row), ha)
+			f.SetCellValue(sheet, cellRef(7, row), fmt.Sprintf("%s @ %s", g.Away, g.Home))
+
+			if cellStyle != 0 {
+				for col := 1; col <= 7; col++ {
+					f.SetCellStyle(sheet, cellRef(col, row), cellRef(col, row), cellStyle)
+				}
+			}
+			row++
 		}
 
 		// Set column widths
@@ -261,60 +331,53 @@ func writeTeamSheets(f *excelize.File, cfg *config.Config, lastMasterRow int) er
 	return nil
 }
 
-// buildTeamFormula creates a LET/FILTER/HSTACK formula that derives
-// a team's schedule from the Master Schedule sheet.
-// Requires Excel 365 or Excel 2021+ for dynamic array support.
-func buildTeamFormula(team, masterSheet string, fieldNames []string, lastRow int) string {
-	ms := fmt.Sprintf("'%s'", masterSheet)
-	colRange := func(col string) string {
-		return fmt.Sprintf("%s!%s$2:%s$%d", ms, col, col, lastRow)
+func readGamesFromMaster(f *excelize.File) ([]gameEntry, error) {
+	rows, err := f.GetRows("Master Schedule")
+	if err != nil {
+		return nil, fmt.Errorf("reading Master Schedule: %w", err)
 	}
 
-	var parts []string
-	parts = append(parts, fmt.Sprintf(`team,"%s"`, team))
-	parts = append(parts, fmt.Sprintf("d,%s", colRange("A")))
-	parts = append(parts, fmt.Sprintf("dy,%s", colRange("B")))
-	parts = append(parts, fmt.Sprintf("tm,%s", colRange("C")))
-
-	// Column variables and match variables for each field
-	for i := range fieldNames {
-		col := colLetter(i + 4)
-		parts = append(parts, fmt.Sprintf("c%d,%s", i+1, colRange(col)))
-	}
-	for i := range fieldNames {
-		parts = append(parts, fmt.Sprintf("m%d,ISNUMBER(SEARCH(team,c%d))", i+1, i+1))
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("Master Schedule is empty")
 	}
 
-	// found = any field column contains the team
-	matchExprs := make([]string, len(fieldNames))
-	for i := range fieldNames {
-		matchExprs[i] = fmt.Sprintf("m%d", i+1)
+	header := rows[0]
+	var games []gameEntry
+	for i, row := range rows {
+		if i == 0 || len(row) < 3 || row[0] == "" {
+			continue
+		}
+		date, err := time.Parse("01/02/2006", row[0])
+		if err != nil {
+			continue
+		}
+		for fi := 3; fi < len(header) && fi < len(row); fi++ {
+			if row[fi] == "" {
+				continue
+			}
+			away, home, ok := parseGameCell(row[fi])
+			if !ok {
+				continue
+			}
+			games = append(games, gameEntry{
+				Date:  date,
+				Time:  row[2],
+				Field: header[fi],
+				Home:  home,
+				Away:  away,
+			})
+		}
 	}
-	parts = append(parts, fmt.Sprintf("found,(%s)>0", strings.Join(matchExprs, "+")))
+	return games, nil
+}
 
-	// game = cell text from the matching field column
-	gameExpr := `""`
-	for i := len(fieldNames) - 1; i >= 0; i-- {
-		gameExpr = fmt.Sprintf("IF(m%d,c%d,%s)", i+1, i+1, gameExpr)
+func parseGameCell(cell string) (away, home string, ok bool) {
+	for i := 0; i < len(cell)-2; i++ {
+		if cell[i] == ' ' && cell[i+1] == '@' && cell[i+2] == ' ' {
+			return cell[:i], cell[i+3:], true
+		}
 	}
-	parts = append(parts, fmt.Sprintf("game,%s", gameExpr))
-
-	// field = column header name from the matching field
-	fieldExpr := `""`
-	for i := len(fieldNames) - 1; i >= 0; i-- {
-		colName := fieldColumnName(fieldNames[i], fieldNames)
-		fieldExpr = fmt.Sprintf(`IF(m%d,"%s",%s)`, i+1, colName, fieldExpr)
-	}
-	parts = append(parts, fmt.Sprintf("field,%s", fieldExpr))
-
-	// opponent and home/away parsed from "Away @ Home" format
-	parts = append(parts, `opp,IFERROR(IF(LEFT(game,FIND(" @ ",game)-1)=team,MID(game,FIND(" @ ",game)+3,100),LEFT(game,FIND(" @ ",game)-1)),"")`)
-	parts = append(parts, `ha,IFERROR(IF(LEFT(game,FIND(" @ ",game)-1)=team,"Away","Home"),"")`)
-
-	// Final: FILTER + HSTACK to produce Date, Day, Time, Field, Opponent, Home/Away, Game
-	parts = append(parts, `FILTER(HSTACK(d,dy,tm,field,opp,ha,game),found,"No games scheduled")`)
-
-	return "LET(" + strings.Join(parts, ",") + ")"
+	return "", "", false
 }
 
 func cellRef(col, row int) string {

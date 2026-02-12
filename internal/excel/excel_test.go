@@ -1,7 +1,6 @@
 package excel
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -142,13 +141,23 @@ func TestGenerateWorkbook(t *testing.T) {
 		}
 	})
 
-	t.Run("team sheet has formula", func(t *testing.T) {
-		formula, _ := f.GetCellFormula("Angels", "A2")
-		if formula == "" {
-			t.Error("Angels sheet A2 should have a formula")
+	t.Run("team sheet has static game data", func(t *testing.T) {
+		val, _ := f.GetCellValue("Angels", "A1")
+		if val != "Date" {
+			t.Errorf("Angels A1 = %q, want Date", val)
 		}
-		if !strings.Contains(formula, "FILTER") || !strings.Contains(formula, "Angels") {
-			t.Errorf("formula should reference FILTER and team name, got: %s", formula)
+		// Angels play in Game 1 (Cubs @ Angels), should have a row
+		val, _ = f.GetCellValue("Angels", "G2")
+		if val != "Cubs @ Angels" {
+			t.Errorf("Angels G2 = %q, want Cubs @ Angels", val)
+		}
+		val, _ = f.GetCellValue("Angels", "E2")
+		if val != "Cubs" {
+			t.Errorf("Angels E2 (opponent) = %q, want Cubs", val)
+		}
+		val, _ = f.GetCellValue("Angels", "F2")
+		if val != "Home" {
+			t.Errorf("Angels F2 (home/away) = %q, want Home", val)
 		}
 	})
 
@@ -185,5 +194,41 @@ func TestWriteAndRead(t *testing.T) {
 	val, _ := f2.GetCellValue("Master Schedule", "A1")
 	if val != "Date" {
 		t.Errorf("re-read A1 = %q, want Date", val)
+	}
+}
+
+func TestUpdateTeamSheets(t *testing.T) {
+	cfg, result := testData()
+	slots := schedule.GenerateSlots(cfg)
+	blackouts := schedule.GenerateBlackoutSlots(cfg)
+
+	f, err := Generate(cfg, result, slots, blackouts)
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+
+	path := t.TempDir() + "/test.xlsx"
+	if err := f.SaveAs(path); err != nil {
+		t.Fatalf("SaveAs error: %v", err)
+	}
+
+	// UpdateTeamSheets should re-read master and rewrite team sheets
+	if err := UpdateTeamSheets(path, cfg); err != nil {
+		t.Fatalf("UpdateTeamSheets() error: %v", err)
+	}
+
+	f2, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatalf("OpenFile error: %v", err)
+	}
+	defer f2.Close()
+
+	val, _ := f2.GetCellValue("Angels", "G2")
+	if val != "Cubs @ Angels" {
+		t.Errorf("Angels G2 after update = %q, want Cubs @ Angels", val)
+	}
+	val, _ = f2.GetCellValue("Astros", "G2")
+	if val != "Padres @ Astros" {
+		t.Errorf("Astros G2 after update = %q, want Padres @ Astros", val)
 	}
 }
