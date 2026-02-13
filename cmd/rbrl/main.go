@@ -304,6 +304,12 @@ func runValidate(configPath, schedulePath string) error {
 
 	fmt.Printf("\nValidation complete: %d rule violations, %d guideline violations\n", errors, warnings)
 
+	// Regenerate team sheets from master schedule
+	if err := excel.UpdateTeamSheets(schedulePath, cfg); err != nil {
+		return fmt.Errorf("updating team sheets: %w", err)
+	}
+	fmt.Printf("✓ Team sheets updated in %s\n", schedulePath)
+
 	if errors > 0 {
 		return fmt.Errorf("%d constraint violations found", errors)
 	}
