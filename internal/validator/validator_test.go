@@ -1,6 +1,7 @@
 package validator
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -27,8 +28,8 @@ func fullTestConfig() *config.Config {
 			},
 		},
 		Divisions: []config.Division{
-			{Name: "American", Teams: []string{"Angels", "Astros", "Orioles", "Mariners", "Royals"}},
-			{Name: "National", Teams: []string{"Cubs", "Padres", "Phillies", "Pirates", "Rockies"}},
+			{Name: "American", Teams: []string{"Angels", "Astros", "Athletics", "Mariners", "Royals"}},
+			{Name: "National", Teams: []string{"Cubs", "Padres", "Phillies", "Pirates", "Marlins"}},
 		},
 		Fields: []config.Field{
 			{Name: "Moscariello Ballpark"},
@@ -231,7 +232,7 @@ func TestCheckMaxGamesPerTimeslot(t *testing.T) {
 		games := []parsedGame{
 			{Row: 2, Date: d(5, 1), Time: "17:45", Home: "Angels", Away: "Cubs"},
 			{Row: 3, Date: d(5, 1), Time: "17:45", Home: "Astros", Away: "Padres"},
-			{Row: 4, Date: d(5, 1), Time: "17:45", Home: "Orioles", Away: "Royals"},
+			{Row: 4, Date: d(5, 1), Time: "17:45", Home: "Athletics", Away: "Royals"},
 		}
 		v := checkMaxGamesPerTimeslot(cfg, games)
 		if len(v) == 0 {
@@ -305,6 +306,140 @@ func TestCheckRematchProximity(t *testing.T) {
 		v := checkRematchProximity(cfg, games)
 		if len(v) == 0 {
 			t.Error("expected warning for rematch after 7 days")
+		}
+	})
+}
+
+func TestCheckOverflowUsage(t *testing.T) {
+	overflowEnd := date(2026, 6, 5)
+	cfg := &config.Config{
+		Season: config.Season{
+			StartDate:       date(2026, 4, 25),
+			EndDate:         date(2026, 5, 31),
+			OverflowEndDate: &overflowEnd,
+		},
+		Divisions: []config.Division{
+			{Name: "American", Teams: []string{"Angels", "Astros", "Athletics", "Mariners", "Royals"}},
+			{Name: "National", Teams: []string{"Cubs", "Padres", "Phillies", "Pirates", "Marlins"}},
+		},
+		Fields: []config.Field{
+			{Name: "Moscariello Ballpark"},
+			{Name: "Symonds Field"},
+			{Name: "Washington Park"},
+		},
+		TimeSlots: config.TimeSlots{
+			Weekday:  []string{"17:45"},
+			Saturday: []string{"12:30", "14:45", "17:00"},
+			Sunday:   []string{"17:00"},
+		},
+		Strategy: "division_weighted",
+		Rules: config.Rules{
+			MaxGamesPerDayPerTeam: 1,
+			MaxConsecutiveDays:    2,
+			MaxGamesPerWeek:       3,
+			MaxGamesPerTimeslot:   2,
+		},
+		Guidelines: config.Guidelines{
+			MinDaysBetweenSameMatchup: 14,
+			BalanceSundayGames:        true,
+			BalancePace:               true,
+		},
+	}
+
+	slots := schedule.GenerateSlots(cfg)
+	overflowSlots := schedule.GenerateOverflowSlots(cfg)
+	blackouts := schedule.GenerateBlackoutSlots(cfg)
+	strat := &strategy.DivisionWeighted{}
+	games := strat.GenerateMatchups(cfg.Divisions)
+
+	result, err := schedule.Schedule(cfg, slots, overflowSlots, games)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+
+	f, err := excel.Generate(cfg, result, append(slots, overflowSlots...), blackouts)
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+
+	path := t.TempDir() + "/schedule.xlsx"
+	if err := f.SaveAs(path); err != nil {
+		t.Fatalf("SaveAs error: %v", err)
+	}
+
+	violations, err := Validate(cfg, path)
+	if err != nil {
+		t.Fatalf("Validate() error: %v", err)
+	}
+
+	// Count overflow games
+	endDate := cfg.Season.EndDate.Time
+	overflowGames := 0
+	for _, a := range result.Assignments {
+		if a.Slot.Date.After(endDate) {
+			overflowGames++
+		}
+	}
+
+	if overflowGames > 0 {
+		// If there are overflow games, check whether the warning is appropriate
+		// by seeing if open regular slots exist
+		openSlots := 0
+		for _, s := range slots {
+			used := false
+			for _, a := range result.Assignments {
+				if a.Slot == s {
+					used = true
+					break
+				}
+			}
+			if !used {
+				openSlots++
+			}
+		}
+
+		if openSlots > 0 {
+			found := false
+			for _, v := range violations {
+				if v.Type == "warning" && strings.Contains(v.Message, "overflow") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Error("expected overflow warning when overflow games exist and regular slots are open")
+			}
+		}
+	}
+
+	t.Run("no overflow warning when no overflow configured", func(t *testing.T) {
+		cfgNoOverflow := *cfg
+		cfgNoOverflow.Season.OverflowEndDate = nil
+
+		result2, err := schedule.Schedule(&cfgNoOverflow, slots, nil, games)
+		if err != nil {
+			t.Fatalf("Schedule() error: %v", err)
+		}
+
+		f2, err := excel.Generate(&cfgNoOverflow, result2, slots, blackouts)
+		if err != nil {
+			t.Fatalf("Generate() error: %v", err)
+		}
+
+		path2 := t.TempDir() + "/schedule.xlsx"
+		if err := f2.SaveAs(path2); err != nil {
+			t.Fatalf("SaveAs error: %v", err)
+		}
+
+		violations2, err := Validate(&cfgNoOverflow, path2)
+		if err != nil {
+			t.Fatalf("Validate() error: %v", err)
+		}
+
+		for _, v := range violations2 {
+			if strings.Contains(v.Message, "overflow") {
+				t.Error("should not have overflow warning when overflow is not configured")
+			}
 		}
 	})
 }

@@ -44,6 +44,9 @@ func Validate(cfg *config.Config, path string) ([]Violation, error) {
 	violations = append(violations, check3In4Days(cfg, assignments)...)
 	violations = append(violations, checkSundayBalance(cfg, assignments)...)
 
+	// Check overflow usage
+	violations = append(violations, checkOverflowUsage(cfg, f, assignments)...)
+
 	// Check game completeness
 	violations = append(violations, checkGameCompleteness(cfg, assignments)...)
 
@@ -352,4 +355,91 @@ func sortDates(dates []time.Time) {
 			dates[j], dates[j-1] = dates[j-1], dates[j]
 		}
 	}
+}
+
+// checkOverflowUsage warns when games are scheduled in the overflow period
+// but open slots exist in the regular season.
+func checkOverflowUsage(cfg *config.Config, f *excelize.File, games []parsedGame) []Violation {
+	if cfg.Season.OverflowEndDate == nil {
+		return nil
+	}
+
+	endDate := cfg.Season.EndDate.Time
+
+	var overflowGames int
+	for _, g := range games {
+		if g.Date.After(endDate) {
+			overflowGames++
+		}
+	}
+	if overflowGames == 0 {
+		return nil
+	}
+
+	openSlots := countOpenRegularSlots(cfg, f, games)
+	if openSlots == 0 {
+		return nil
+	}
+
+	return []Violation{{
+		Type: "warning",
+		Message: fmt.Sprintf(
+			"%d game(s) in overflow period could potentially fit in %d open regular-season slot(s)",
+			overflowGames, openSlots),
+	}}
+}
+
+// countOpenRegularSlots counts empty, non-blackout field cells in the master
+// sheet for rows with dates on or before the season end date.
+func countOpenRegularSlots(cfg *config.Config, f *excelize.File, games []parsedGame) int {
+	rows, err := f.GetRows("Master Schedule")
+	if err != nil || len(rows) == 0 {
+		return 0
+	}
+
+	header := rows[0]
+	numFields := len(header) - 3 // columns after Date, Day, Time
+	if numFields <= 0 {
+		return 0
+	}
+
+	endDate := cfg.Season.EndDate.Time
+
+	// Build a set of (date, time, field-column-index) that have games
+	type slotKey struct {
+		date  time.Time
+		time  string
+		field int // field column index (0-based)
+	}
+	gameSlots := make(map[slotKey]bool)
+	for _, g := range games {
+		for fi := 0; fi < numFields; fi++ {
+			if fi+3 < len(header) && header[fi+3] == g.Field {
+				gameSlots[slotKey{g.Date, g.Time, fi}] = true
+			}
+		}
+	}
+
+	open := 0
+	for i, row := range rows {
+		if i == 0 || len(row) < 3 || row[0] == "" {
+			continue
+		}
+		date, err := time.Parse("01/02/2006", row[0])
+		if err != nil || date.After(endDate) {
+			continue
+		}
+
+		for fi := 0; fi < numFields; fi++ {
+			colIdx := fi + 3
+			cell := ""
+			if colIdx < len(row) {
+				cell = row[colIdx]
+			}
+			if cell == "" {
+				open++
+			}
+		}
+	}
+	return open
 }
