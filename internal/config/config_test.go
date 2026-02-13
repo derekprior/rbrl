@@ -25,9 +25,9 @@ season:
 
 divisions:
   - name: American
-    teams: [Angels, Astros, Orioles, Mariners, Royals]
+    teams: [Angels, Astros, Athletics, Mariners, Royals]
   - name: National
-    teams: [Cubs, Padres, Phillies, Pirates, Rockies]
+    teams: [Cubs, Padres, Phillies, Pirates, Marlins]
 
 fields:
   - name: Moscariello Ballpark

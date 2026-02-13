@@ -131,9 +131,9 @@ season:
 # can vary. Team names must be unique across all divisions.
 divisions:
   - name: American
-    teams: [Angels, Astros, Orioles, Mariners, Royals]
+    teams: [Angels, Astros, Athletics, Mariners, Royals]
   - name: National
-    teams: [Cubs, Padres, Phillies, Pirates, Rockies]
+    teams: [Cubs, Padres, Phillies, Pirates, Marlins]
 
 # Fields available for scheduling. Each field can have reservations that block
 # it for specific dates or date ranges.

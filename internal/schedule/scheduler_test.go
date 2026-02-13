@@ -21,8 +21,8 @@ func schedulerTestConfig() *config.Config {
 			},
 		},
 		Divisions: []config.Division{
-			{Name: "American", Teams: []string{"Angels", "Astros", "Orioles", "Mariners", "Royals"}},
-			{Name: "National", Teams: []string{"Cubs", "Padres", "Phillies", "Pirates", "Rockies"}},
+			{Name: "American", Teams: []string{"Angels", "Astros", "Athletics", "Mariners", "Royals"}},
+			{Name: "National", Teams: []string{"Cubs", "Padres", "Phillies", "Pirates", "Marlins"}},
 		},
 		Fields: []config.Field{
 			{Name: "Moscariello Ballpark"},

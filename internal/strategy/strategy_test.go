@@ -8,8 +8,8 @@ import (
 
 func testDivisions() []config.Division {
 	return []config.Division{
-		{Name: "American", Teams: []string{"Angels", "Astros", "Orioles", "Mariners", "Royals"}},
-		{Name: "National", Teams: []string{"Cubs", "Padres", "Phillies", "Pirates", "Rockies"}},
+		{Name: "American", Teams: []string{"Angels", "Astros", "Athletics", "Mariners", "Royals"}},
+		{Name: "National", Teams: []string{"Cubs", "Padres", "Phillies", "Pirates", "Marlins"}},
 	}
 }
 
@@ -56,10 +56,10 @@ func TestDivisionWeightedMatchups(t *testing.T) {
 		}
 
 		intraPairs := []pair{
-			{"Angels", "Astros"}, {"Angels", "Mariners"}, {"Angels", "Orioles"}, {"Angels", "Royals"},
-			{"Astros", "Mariners"}, {"Astros", "Orioles"}, {"Astros", "Royals"},
-			{"Mariners", "Orioles"}, {"Mariners", "Royals"},
-			{"Orioles", "Royals"},
+			{"Angels", "Astros"}, {"Angels", "Athletics"}, {"Angels", "Mariners"}, {"Angels", "Royals"},
+			{"Astros", "Athletics"}, {"Astros", "Mariners"}, {"Astros", "Royals"},
+			{"Athletics", "Mariners"}, {"Athletics", "Royals"},
+			{"Mariners", "Royals"},
 		}
 		for _, p := range intraPairs {
 			if matchups[p] != 2 {
