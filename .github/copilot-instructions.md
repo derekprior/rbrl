@@ -39,6 +39,18 @@ Soft constraints (preferred, warned if violated):
 - **Config-driven**: All season parameters come from `config.yaml`. No hardcoded values.
 - **Compiler warnings as errors**: CI runs `go vet` and treats warnings as failures.
 
+## Excel Generation
+
+Team sheets are statically generated with values computed from the master
+schedule (not formulas). This avoids excelize limitations with dynamic array
+formulas (LET, FILTER, HSTACK don't serialize correctly for spilling).
+
+- **`generate`** writes both the master schedule and team sheets.
+- **`validate`** re-reads the master schedule and regenerates team sheets,
+  so manual edits to the master sheet are reflected without re-generating.
+- **Build with `make`**: Use `make build` (not `go build` directly) to
+  ensure `go vet` runs first.
+
 ## Key Types
 
 - `config.Config` — Top-level config struct parsed from YAML
