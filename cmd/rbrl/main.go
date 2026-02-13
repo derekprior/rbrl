@@ -15,53 +15,20 @@ import (
 
 const defaultConfigFile = "config.yaml"
 
-func resolveConfigPath(args []string) (string, error) {
-	if len(args) > 0 {
-		return args[0], nil
+func resolveConfigPath(configFlag string) (string, error) {
+	if configFlag != "" {
+		return configFlag, nil
 	}
 	if _, err := os.Stat(defaultConfigFile); err == nil {
 		return defaultConfigFile, nil
 	}
-	return "", fmt.Errorf("no config file found. Either create %s in the current directory or pass the path as an argument", defaultConfigFile)
+	return "", fmt.Errorf("no config file found. Either create %s in the current directory or pass --config", defaultConfigFile)
 }
 
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "rbrl",
 		Short: "Reading Babe Ruth League schedule generator",
-	}
-
-	var outputFile string
-	generateCmd := &cobra.Command{
-		Use:          "generate [config.yaml]",
-		Short:        "Generate a schedule from a config file",
-		Args:         cobra.MaximumNArgs(1),
-		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			configPath, err := resolveConfigPath(args)
-			if err != nil {
-				return err
-			}
-			return runGenerate(configPath, outputFile)
-		},
-	}
-	generateCmd.Flags().StringVarP(&outputFile, "output", "o", "schedule.xlsx", "Output Excel file path")
-
-	validateCmd := &cobra.Command{
-		Use:          "validate [config.yaml] <schedule.xlsx>",
-		Short:        "Validate a schedule against config rules",
-		Args:         cobra.RangeArgs(1, 2),
-		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 2 {
-				return runValidate(args[0], args[1])
-			}
-			configPath, err := resolveConfigPath(nil)
-			if err != nil {
-				return err
-			}
-			return runValidate(configPath, args[0])
-		},
 	}
 
 	var initOutputPath string
@@ -76,7 +43,46 @@ func main() {
 	}
 	initCmd.Flags().StringVarP(&initOutputPath, "output", "o", defaultConfigFile, "Output path for the config file")
 
-	rootCmd.AddCommand(generateCmd, validateCmd, initCmd)
+	scheduleCmd := &cobra.Command{
+		Use:   "schedule",
+		Short: "Generate and validate schedules",
+	}
+
+	var configFile string
+	scheduleCmd.PersistentFlags().StringVar(&configFile, "config", "", "Path to config file (default: config.yaml in current directory)")
+
+	var outputFile string
+	generateCmd := &cobra.Command{
+		Use:          "generate",
+		Short:        "Generate a schedule from a config file",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, err := resolveConfigPath(configFile)
+			if err != nil {
+				return err
+			}
+			return runGenerate(configPath, outputFile)
+		},
+	}
+	generateCmd.Flags().StringVarP(&outputFile, "output", "o", "schedule.xlsx", "Output Excel file path")
+
+	validateCmd := &cobra.Command{
+		Use:          "validate <schedule.xlsx>",
+		Short:        "Validate a schedule against config rules",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, err := resolveConfigPath(configFile)
+			if err != nil {
+				return err
+			}
+			return runValidate(configPath, args[0])
+		},
+	}
+
+	scheduleCmd.AddCommand(generateCmd, validateCmd)
+	rootCmd.AddCommand(initCmd, scheduleCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

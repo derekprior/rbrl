@@ -31,18 +31,19 @@ go install github.com/derekprior/rbrl/cmd/rbrl@latest
 ### Generate a schedule
 
 ```sh
-rbrl generate config.yaml -o schedule.xlsx
+rbrl schedule generate -o schedule.xlsx
 ```
 
-This reads the config, generates all matchups, assigns them to available
-timeslots respecting constraints, and writes an Excel workbook.
+This reads the config (defaults to `config.yaml` in the current directory, or
+pass `--config path/to/config.yaml`), generates all matchups, assigns them to
+available timeslots respecting constraints, and writes an Excel workbook.
 
 ### Validate a schedule
 
 After manually editing the Excel file (e.g., rescheduling rainouts), validate it:
 
 ```sh
-rbrl validate config.yaml schedule.xlsx
+rbrl schedule validate schedule.xlsx
 ```
 
 This reads the master sheet back and checks all constraints, reporting errors
@@ -105,7 +106,7 @@ go test ./...
 go build -o rbrl ./cmd/rbrl/
 
 # Generate a schedule
-./rbrl generate config.yaml -o schedule.xlsx
+./rbrl schedule generate -o schedule.xlsx
 ```
 
 ## Project Structure
