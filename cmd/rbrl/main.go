@@ -15,6 +15,16 @@ import (
 
 const defaultConfigFile = "config.yaml"
 
+// ANSI color helpers
+const (
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorBold   = "\033[1m"
+	colorDim    = "\033[2m"
+)
+
 func resolveConfigPath(configFlag string) (string, error) {
 	if configFlag != "" {
 		return configFlag, nil
@@ -97,7 +107,7 @@ func runInit(outputPath string) error {
 		return fmt.Errorf("writing config: %w", err)
 	}
 
-	fmt.Printf("✓ Created %s\n", outputPath)
+	fmt.Printf("%s✓ Created %s%s\n", colorGreen, outputPath, colorReset)
 	return nil
 }
 
@@ -245,26 +255,26 @@ func runGenerate(configPath, outputPath string) error {
 	result, schedErr := schedule.Schedule(cfg, slots, overflowSlots, games)
 
 	if schedErr != nil {
-		fmt.Fprintf(os.Stderr, "⚠ %s\n", schedErr)
+		fmt.Fprintf(os.Stderr, "%s⚠ %s%s\n", colorYellow, schedErr, colorReset)
 		fmt.Fprintf(os.Stderr, "\nGenerating partial schedule...\n")
 	} else {
-		fmt.Printf("✓ All %d games scheduled\n", len(result.Assignments))
+		fmt.Printf("%s✓ All %d games scheduled%s\n", colorGreen, len(result.Assignments), colorReset)
 	}
 
-	fmt.Println("\nPer Team Metrics:")
-	fmt.Printf("  %-15s %6s %4s %4s\n", "Team", "Games", "Sat", "Sun")
+	fmt.Printf("\n%sPer Team Metrics:%s\n", colorBold, colorReset)
+	fmt.Printf("  %s%-15s %6s %4s %4s%s\n", colorDim, "Team", "Games", "Sat", "Sun", colorReset)
 	for _, team := range cfg.AllTeams() {
 		m := result.TeamMetrics[team]
 		fmt.Printf("  %-15s %6d %4d %4d\n", team, m.Games, m.Saturday, m.Sunday)
 	}
 
 	if len(result.Warnings) > 0 {
-		fmt.Printf("\nGuideline violations (%d):\n", len(result.Warnings))
+		fmt.Printf("\n%sGuideline violations (%d):%s\n", colorBold, len(result.Warnings), colorReset)
 		for _, w := range result.Warnings {
-			fmt.Printf("  ⚠ %s\n", w)
+			fmt.Printf("  %s⚠ %s%s\n", colorYellow, w, colorReset)
 		}
 	} else {
-		fmt.Println("\n✓ No guideline violations")
+		fmt.Printf("\n%s✓ No guideline violations%s\n", colorGreen, colorReset)
 	}
 
 	allSlots := append(slots, overflowSlots...)
@@ -277,7 +287,7 @@ func runGenerate(configPath, outputPath string) error {
 		return fmt.Errorf("saving file: %w", err)
 	}
 
-	fmt.Printf("\n✓ Schedule saved to %s\n", outputPath)
+	fmt.Printf("\n%s✓ Schedule saved to %s%s\n", colorGreen, outputPath, colorReset)
 	if schedErr != nil {
 		return fmt.Errorf("schedule is incomplete: %d of %d games scheduled", len(result.Assignments), len(games))
 	}
@@ -301,20 +311,30 @@ func runValidate(configPath, schedulePath string) error {
 		switch v.Type {
 		case "error":
 			errors++
-			fmt.Printf("✗ Rule violation: %s\n", v.Message)
+			fmt.Printf("%s✗ Rule violation: %s%s\n", colorRed, v.Message, colorReset)
 		case "warning":
 			warnings++
-			fmt.Printf("⚠ Guideline violation: %s\n", v.Message)
+			fmt.Printf("%s⚠ Guideline violation: %s%s\n", colorYellow, v.Message, colorReset)
 		}
 	}
 
-	fmt.Printf("\nValidation complete: %d rule violations, %d guideline violations\n", errors, warnings)
+	fmt.Printf("\nValidation complete: ")
+	if errors > 0 {
+		fmt.Printf("%s%d rule violations%s", colorRed, errors, colorReset)
+	} else {
+		fmt.Printf("%s%d rule violations%s", colorGreen, errors, colorReset)
+	}
+	if warnings > 0 {
+		fmt.Printf(", %s%d guideline violations%s\n", colorYellow, warnings, colorReset)
+	} else {
+		fmt.Printf(", %s%d guideline violations%s\n", colorGreen, warnings, colorReset)
+	}
 
 	// Regenerate team sheets from master schedule
 	if err := excel.UpdateTeamSheets(schedulePath, cfg); err != nil {
 		return fmt.Errorf("updating team sheets: %w", err)
 	}
-	fmt.Printf("✓ Team sheets updated in %s\n", schedulePath)
+	fmt.Printf("%s✓ Team sheets updated in %s%s\n", colorGreen, schedulePath, colorReset)
 
 	if errors > 0 {
 		return fmt.Errorf("%d constraint violations found", errors)
