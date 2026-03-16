@@ -259,6 +259,65 @@ rules:
 			t.Error("expected error for duplicate team name")
 		}
 	})
+
+	t.Run("game_time and times are mutually exclusive", func(t *testing.T) {
+		yaml := `
+season:
+  start_date: "2026-04-25"
+  end_date: "2026-05-31"
+divisions:
+  - name: A
+    teams: [T1, T2]
+fields:
+  - name: F1
+    reservations:
+      - date: "2026-05-01"
+        game_time: "10:00"
+        times: ["12:30"]
+        reason: "Test"
+time_slots:
+  weekday: ["17:45"]
+strategy: division_weighted
+rules:
+  max_games_per_day_per_team: 1
+  max_consecutive_days: 2
+  max_games_per_week: 3
+  max_games_per_timeslot: 2
+`
+		_, err := LoadFromBytes([]byte(yaml))
+		if err == nil {
+			t.Error("expected error for game_time with times")
+		}
+	})
+
+	t.Run("invalid game_time format", func(t *testing.T) {
+		yaml := `
+season:
+  start_date: "2026-04-25"
+  end_date: "2026-05-31"
+divisions:
+  - name: A
+    teams: [T1, T2]
+fields:
+  - name: F1
+    reservations:
+      - date: "2026-05-01"
+        game_time: "10am"
+        reason: "Test"
+time_slots:
+  weekday: ["17:45"]
+strategy: division_weighted
+rules:
+  max_games_per_day_per_team: 1
+  max_consecutive_days: 2
+  max_games_per_week: 3
+  max_games_per_timeslot: 2
+`
+		_, err := LoadFromBytes([]byte(yaml))
+		if err == nil {
+			t.Error("expected error for invalid game_time format")
+		}
+	})
 }
 
 func TestAllTeams(t *testing.T) {

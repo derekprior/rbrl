@@ -39,6 +39,7 @@ type Reservation struct {
 	StartDate *Date    `yaml:"start_date"`
 	EndDate   *Date    `yaml:"end_date"`
 	Times     []string `yaml:"times"`
+	GameTime  string   `yaml:"game_time"`
 	Reason    string   `yaml:"reason"`
 }
 
@@ -182,6 +183,14 @@ func (c *Config) validate() error {
 			}
 			if hasRange && !r.EndDate.Time.After(r.StartDate.Time) && r.EndDate.Time != r.StartDate.Time {
 				return fmt.Errorf("field %q: reservation end_date must be on or after start_date", f.Name)
+			}
+			if r.GameTime != "" && len(r.Times) > 0 {
+				return fmt.Errorf("field %q: reservation cannot have both 'game_time' and 'times'", f.Name)
+			}
+			if r.GameTime != "" {
+				if _, err := time.Parse("15:04", r.GameTime); err != nil {
+					return fmt.Errorf("field %q: invalid game_time %q (expected HH:MM format)", f.Name, r.GameTime)
+				}
 			}
 		}
 	}

@@ -763,7 +763,7 @@ func (s *scheduler) scoreSlot(game strategy.Game, slot Slot) float64 {
 		daysBetween := slot.Date.Sub(lastDate).Hours() / 24
 		minDays := float64(s.cfg.Guidelines.MinDaysBetweenSameMatchup)
 		if daysBetween < minDays {
-			score += (minDays - daysBetween) * 5
+			score += (minDays - daysBetween) * 2
 		}
 	}
 
@@ -781,7 +781,7 @@ func (s *scheduler) scoreSlot(game strategy.Game, slot Slot) float64 {
 
 	// Prefer earlier dates slightly (spread across season)
 	dayNum := slot.Date.Sub(s.cfg.Season.StartDate.Time).Hours() / 24
-	score += dayNum * 0.1
+	score += dayNum * 0.7
 
 	// Prefer later time slots (e.g., 17:00 over 12:30 on multi-slot days).
 	// "HH:MM" strings sort chronologically; invert so later = lower score.

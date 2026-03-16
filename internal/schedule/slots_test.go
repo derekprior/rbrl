@@ -226,6 +226,132 @@ func TestGenerateSlots(t *testing.T) {
 	})
 }
 
+func TestGameTimeReservation(t *testing.T) {
+	cfg := testConfig()
+	// May 9 is a Saturday. Add a game_time reservation for Symonds at 10:00.
+	// Window: 09:00–13:00 should block 12:30, but not 14:45 or 17:00.
+	cfg.Fields[1].Reservations = []config.Reservation{
+		{
+			Date:     datePtr(2026, 5, 9),
+			GameTime: "10:00",
+			Reason:   "Freshman",
+		},
+	}
+	slots := GenerateSlots(cfg)
+
+	sat := mustDate("2026-05-09")
+	var symSlots []Slot
+	for _, s := range slots {
+		if s.Date.Equal(sat) && s.Field == "Symonds Field" {
+			symSlots = append(symSlots, s)
+		}
+	}
+
+	t.Run("blocks slots within the game window", func(t *testing.T) {
+		for _, s := range symSlots {
+			if s.Time == "12:30" {
+				t.Errorf("expected 12:30 slot to be blocked by game_time reservation")
+			}
+		}
+	})
+
+	t.Run("allows slots outside the game window", func(t *testing.T) {
+		times := map[string]bool{}
+		for _, s := range symSlots {
+			times[s.Time] = true
+		}
+		if !times["14:45"] {
+			t.Error("expected 14:45 slot to remain available")
+		}
+		if !times["17:00"] {
+			t.Error("expected 17:00 slot to remain available")
+		}
+	})
+
+	t.Run("does not affect other fields", func(t *testing.T) {
+		var otherSlots []Slot
+		for _, s := range slots {
+			if s.Date.Equal(sat) && s.Field != "Symonds Field" {
+				otherSlots = append(otherSlots, s)
+			}
+		}
+		// 2 fields × 3 Saturday times = 6
+		if len(otherSlots) != 6 {
+			t.Errorf("other field slots on 5/9 = %d, want 6", len(otherSlots))
+		}
+	})
+}
+
+func TestGameTimeBlackoutSlots(t *testing.T) {
+	cfg := testConfig()
+	cfg.Fields[1].Reservations = []config.Reservation{
+		{
+			Date:     datePtr(2026, 5, 9),
+			GameTime: "10:00",
+			Reason:   "Freshman",
+		},
+	}
+	blackouts := GenerateBlackoutSlots(cfg)
+
+	sat := mustDate("2026-05-09")
+	var symBlackouts []BlackoutSlot
+	for _, b := range blackouts {
+		if b.Date.Equal(sat) && b.Field == "Symonds Field" {
+			symBlackouts = append(symBlackouts, b)
+		}
+	}
+
+	t.Run("emits blackout for blocked slot", func(t *testing.T) {
+		found := false
+		for _, b := range symBlackouts {
+			if b.Time == "12:30" {
+				found = true
+				if b.Reason != "Freshman" {
+					t.Errorf("reason = %q, want Freshman", b.Reason)
+				}
+			}
+		}
+		if !found {
+			t.Error("expected blackout slot for 12:30 Symonds on 5/9")
+		}
+	})
+
+	t.Run("does not emit blackout for unblocked slots", func(t *testing.T) {
+		for _, b := range symBlackouts {
+			if b.Time == "14:45" || b.Time == "17:00" {
+				t.Errorf("unexpected blackout at %s for Symonds on 5/9", b.Time)
+			}
+		}
+	})
+}
+
+func TestIsBlockedByGameTime(t *testing.T) {
+	tests := []struct {
+		name     string
+		slotTime string
+		gameTime string
+		want     bool
+	}{
+		{"slot at window start", "09:00", "10:00", true},
+		{"slot within window", "12:30", "10:00", true},
+		{"slot at game time", "10:00", "10:00", true},
+		{"slot at window end", "13:00", "10:00", true},
+		{"slot after window", "14:45", "10:00", false},
+		{"slot before window", "08:00", "10:00", false},
+		{"afternoon game blocks evening", "17:00", "15:00", true},
+		{"afternoon game allows morning", "12:30", "15:00", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isBlockedByGameTime(tt.slotTime, tt.gameTime)
+			if got != tt.want {
+				t.Errorf("isBlockedByGameTime(%q, %q) = %v, want %v",
+					tt.slotTime, tt.gameTime, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGenerateBlackoutSlots(t *testing.T) {
 	cfg := testConfig()
 	blackouts := GenerateBlackoutSlots(cfg)

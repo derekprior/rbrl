@@ -33,12 +33,16 @@ reservations by pulling current schedules from Arbiter Live.
      **Symonds Field** entry.
    - Remove all existing reservations with `reason: "Varsity"` from the
      **Moscariello Ballpark** field entry.
-   - Add a new reservation for each extracted home game date, using the
+   - Add a new reservation for each extracted home game, using the
      format:
      ```yaml
      - date: "YYYY-MM-DD"
+       game_time: "HH:MM"
        reason: "JV" # or "Freshman" or "Varsity"
      ```
+   - `game_time` is the scheduled start time of the HS game in 24-hour
+     format (e.g., "10:00", "15:30"). The scheduler uses this to block
+     the field from 1 hour before to 3 hours after the game start.
    - Dates should be in ascending order.
    - If no home games are found for a field, leave that field with no
      reservations (no `reservations:` key).

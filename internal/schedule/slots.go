@@ -37,6 +37,7 @@ func GenerateSlots(cfg *config.Config) []Slot {
 
 	// Build reservation lookup: field+date+time -> true
 	// Also track full-day reservations: field+date -> true
+	// Also track game-time reservations: field+date -> game start times
 	type resKey struct {
 		field string
 		date  time.Time
@@ -48,10 +49,14 @@ func GenerateSlots(cfg *config.Config) []Slot {
 	}
 	reservations := make(map[resKey]bool)
 	fullDayRes := make(map[fieldDateKey]bool)
+	gameTimeRes := make(map[fieldDateKey][]string)
 	for _, f := range cfg.Fields {
 		for _, r := range f.Reservations {
 			for _, rd := range r.Dates() {
-				if len(r.Times) == 0 {
+				if r.GameTime != "" {
+					key := fieldDateKey{f.Name, rd}
+					gameTimeRes[key] = append(gameTimeRes[key], r.GameTime)
+				} else if len(r.Times) == 0 {
 					fullDayRes[fieldDateKey{f.Name, rd}] = true
 				} else {
 					for _, t := range r.Times {
@@ -79,6 +84,18 @@ func GenerateSlots(cfg *config.Config) []Slot {
 				}
 				if reservations[resKey{f.Name, d, t}] {
 					continue
+				}
+				if gameTimes, ok := gameTimeRes[fieldDateKey{f.Name, d}]; ok {
+					blocked := false
+					for _, gt := range gameTimes {
+						if isBlockedByGameTime(t, gt) {
+							blocked = true
+							break
+						}
+					}
+					if blocked {
+						continue
+					}
 				}
 				slots = append(slots, Slot{Date: d, Time: t, Field: f.Name})
 			}
@@ -130,10 +147,14 @@ func GenerateOverflowSlots(cfg *config.Config) []Slot {
 	}
 	reservations := make(map[resKey]bool)
 	fullDayRes := make(map[fieldDateKey]bool)
+	gameTimeRes := make(map[fieldDateKey][]string)
 	for _, f := range cfg.Fields {
 		for _, r := range f.Reservations {
 			for _, rd := range r.Dates() {
-				if len(r.Times) == 0 {
+				if r.GameTime != "" {
+					key := fieldDateKey{f.Name, rd}
+					gameTimeRes[key] = append(gameTimeRes[key], r.GameTime)
+				} else if len(r.Times) == 0 {
 					fullDayRes[fieldDateKey{f.Name, rd}] = true
 				} else {
 					for _, t := range r.Times {
@@ -160,6 +181,18 @@ func GenerateOverflowSlots(cfg *config.Config) []Slot {
 				}
 				if reservations[resKey{f.Name, d, t}] {
 					continue
+				}
+				if gameTimes, ok := gameTimeRes[fieldDateKey{f.Name, d}]; ok {
+					blocked := false
+					for _, gt := range gameTimes {
+						if isBlockedByGameTime(t, gt) {
+							blocked = true
+							break
+						}
+					}
+					if blocked {
+						continue
+					}
 				}
 				slots = append(slots, Slot{Date: d, Time: t, Field: f.Name})
 			}
@@ -219,7 +252,19 @@ func GenerateBlackoutSlots(cfg *config.Config) []BlackoutSlot {
 				if rd.Before(cfg.Season.StartDate.Time) || rd.After(effectiveEnd) {
 					continue
 				}
-				if len(r.Times) == 0 {
+				if r.GameTime != "" {
+					times := timesForDay(rd, holidayDates, cfg.TimeSlots)
+					for _, t := range times {
+						if isBlockedByGameTime(t, r.GameTime) {
+							blackouts = append(blackouts, BlackoutSlot{
+								Date:   rd,
+								Time:   t,
+								Field:  f.Name,
+								Reason: r.Reason,
+							})
+						}
+					}
+				} else if len(r.Times) == 0 {
 					times := timesForDay(rd, holidayDates, cfg.TimeSlots)
 					for _, t := range times {
 						blackouts = append(blackouts, BlackoutSlot{
@@ -268,4 +313,21 @@ func timesForDay(d time.Time, holidays map[time.Time]bool, ts config.TimeSlots) 
 	default:
 		return ts.Weekday
 	}
+}
+
+// isBlockedByGameTime reports whether slotTime falls within the reservation
+// window for a game starting at gameTime. The window extends from 1 hour
+// before to 3 hours after the game start time.
+func isBlockedByGameTime(slotTime, gameTime string) bool {
+	slot, err := time.Parse("15:04", slotTime)
+	if err != nil {
+		return false
+	}
+	game, err := time.Parse("15:04", gameTime)
+	if err != nil {
+		return false
+	}
+	windowStart := game.Add(-1 * time.Hour)
+	windowEnd := game.Add(3 * time.Hour)
+	return !slot.Before(windowStart) && !slot.After(windowEnd)
 }

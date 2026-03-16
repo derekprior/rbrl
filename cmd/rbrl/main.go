@@ -151,6 +151,8 @@ divisions:
 # Reservations block a field for a given date or date range.
 # If 'times' is omitted or empty, the field is blocked for the full day.
 # If 'times' is provided, only those specific time slots are blocked.
+# If 'game_time' is provided, slots within 1 hour before to 3 hours after
+# the game start time are blocked.
 #
 # Single date reservation (full day):
 #   - date: "2026-05-04"
@@ -159,6 +161,11 @@ divisions:
 # Single date, specific times only:
 #   - date: "2026-05-04"
 #     times: ["17:45"]
+#     reason: "Freshman"
+#
+# Single date with game time (blocks 1hr before to 3hr after):
+#   - date: "2026-05-04"
+#     game_time: "10:00"
 #     reason: "Freshman"
 #
 # Date range reservation (blocks every day in the range):
