@@ -31,12 +31,15 @@ divisions:
 
 fields:
   - name: Moscariello Ballpark
+    address: "248 Bancroft Ave, Reading, MA 01867"
     reservations:
       - date: "2026-05-15"
         times: ["17:45"]
         reason: "Varsity"
   - name: Symonds Field
+    address: "73 Symonds Way, Reading, MA 01867"
   - name: Washington Park
+    address: "86 Washington St, Reading, MA 01867"
 
 time_slots:
   weekday: ["17:45"]
@@ -108,6 +111,9 @@ func TestLoadConfig(t *testing.T) {
 		}
 		if len(r.Times) != 1 || r.Times[0] != "17:45" {
 			t.Errorf("reservation times = %v, want [17:45]", r.Times)
+		}
+		if cfg.Fields[0].Address != "248 Bancroft Ave, Reading, MA 01867" {
+			t.Errorf("field address = %q, want %q", cfg.Fields[0].Address, "248 Bancroft Ave, Reading, MA 01867")
 		}
 	})
 
@@ -330,4 +336,51 @@ func TestAllTeams(t *testing.T) {
 	if len(teams) != 10 {
 		t.Errorf("AllTeams() = %d teams, want 10", len(teams))
 	}
+}
+
+func TestGameChangerDefaults(t *testing.T) {
+	cfg, err := LoadFromBytes([]byte(testConfigYAML))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	t.Run("defaults to team name", func(t *testing.T) {
+		for _, team := range cfg.AllTeams() {
+			got, ok := cfg.GameChanger.TeamNames[team]
+			if !ok {
+				t.Errorf("GameChanger.TeamNames missing key %q", team)
+			}
+			if got != team {
+				t.Errorf("GameChanger.TeamNames[%q] = %q, want %q", team, got, team)
+			}
+		}
+	})
+}
+
+func TestGameChangerExplicit(t *testing.T) {
+	yamlStr := testConfigYAML + `
+gamechanger:
+  team_names:
+    Angels: "RBRL Angels"
+    Astros: "RBRL Astros"
+`
+	cfg, err := LoadFromBytes([]byte(yamlStr))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	t.Run("explicit names are preserved", func(t *testing.T) {
+		if cfg.GameChanger.TeamNames["Angels"] != "RBRL Angels" {
+			t.Errorf("got %q, want %q", cfg.GameChanger.TeamNames["Angels"], "RBRL Angels")
+		}
+		if cfg.GameChanger.TeamNames["Astros"] != "RBRL Astros" {
+			t.Errorf("got %q, want %q", cfg.GameChanger.TeamNames["Astros"], "RBRL Astros")
+		}
+	})
+
+	t.Run("unset names default to team name", func(t *testing.T) {
+		if cfg.GameChanger.TeamNames["Cubs"] != "Cubs" {
+			t.Errorf("got %q, want %q", cfg.GameChanger.TeamNames["Cubs"], "Cubs")
+		}
+	})
 }

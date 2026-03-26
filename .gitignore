@@ -4,6 +4,7 @@
 
 # Generated output
 *.xlsx
+gamechanger.csv
 !internal/**/testdata/*.xlsx
 
 # Config (generate with: rbrl init)

@@ -91,7 +91,25 @@ func main() {
 		},
 	}
 
-	scheduleCmd.AddCommand(generateCmd, validateCmd)
+	exportCmd := &cobra.Command{
+		Use:          "export [schedule.xlsx]",
+		Short:        "Export a schedule to GameChanger format",
+		Args:         cobra.MaximumNArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, err := resolveConfigPath(configFile)
+			if err != nil {
+				return err
+			}
+			schedulePath := "schedule.xlsx"
+			if len(args) > 0 {
+				schedulePath = args[0]
+			}
+			return runExport(configPath, schedulePath)
+		},
+	}
+
+	scheduleCmd.AddCommand(generateCmd, validateCmd, exportCmd)
 	rootCmd.AddCommand(initCmd, scheduleCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -174,11 +192,13 @@ divisions:
 #     reason: "Reserved"
 fields:
   - name: Moscariello Ballpark
+    address: "248 Bancroft Ave, Reading, MA 01867"
     reservations:
       - start_date: "2026-04-25"
         end_date: "2026-05-31"
         reason: "Reserved"
   - name: Symonds Field
+    address: "73 Symonds Way, Reading, MA 01867"
     reservations:
       - date: "2026-05-04"
         reason: "Freshman"
@@ -191,6 +211,7 @@ fields:
       - date: "2026-05-22"
         reason: "Freshman"
   - name: Washington Park
+    address: "86 Washington St, Reading, MA 01867"
     reservations:
       - date: "2026-04-29"
         reason: "JV"
@@ -233,6 +254,21 @@ guidelines:
   min_days_between_same_matchup: 10      # Minimum days before two teams play again
   balance_sunday_games: true             # Spread Sunday games evenly across teams
   balance_pace: true                     # Keep games-played roughly equal across teams
+
+# GameChanger team name mappings. Maps config team names to their names in
+# GameChanger. Defaults to the config team name if omitted.
+gamechanger:
+  team_names:
+    Angels: Angels
+    Astros: Astros
+    Athletics: Athletics
+    Mariners: Mariners
+    Royals: Royals
+    Cubs: Cubs
+    Padres: Padres
+    Phillies: Phillies
+    Pirates: Pirates
+    Marlins: Marlins
 `
 
 func runGenerate(configPath, outputPath string) error {
@@ -346,5 +382,26 @@ func runValidate(configPath, schedulePath string) error {
 	if errors > 0 {
 		return fmt.Errorf("%d constraint violations found", errors)
 	}
+	return nil
+}
+
+func runExport(configPath, schedulePath string) error {
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	outputPath := "gamechanger.csv"
+	f, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("creating %s: %w", outputPath, err)
+	}
+	defer f.Close()
+
+	if err := excel.Export(cfg, schedulePath, f); err != nil {
+		return fmt.Errorf("exporting: %w", err)
+	}
+
+	fmt.Printf("%s✓ Exported GameChanger schedule to %s%s\n", colorGreen, outputPath, colorReset)
 	return nil
 }

@@ -63,6 +63,7 @@ func (r *Reservation) Dates() []time.Time {
 
 type Field struct {
 	Name         string        `yaml:"name"`
+	Address      string        `yaml:"address"`
 	Reservations []Reservation `yaml:"reservations"`
 }
 
@@ -92,14 +93,19 @@ type Guidelines struct {
 	BalancePace               bool `yaml:"balance_pace"`
 }
 
+type GameChanger struct {
+	TeamNames map[string]string `yaml:"team_names"`
+}
+
 type Config struct {
-	Season     Season     `yaml:"season"`
-	Divisions  []Division `yaml:"divisions"`
-	Fields     []Field    `yaml:"fields"`
-	TimeSlots  TimeSlots  `yaml:"time_slots"`
-	Strategy   string     `yaml:"strategy"`
-	Rules      Rules      `yaml:"rules"`
-	Guidelines Guidelines `yaml:"guidelines"`
+	Season      Season      `yaml:"season"`
+	Divisions   []Division  `yaml:"divisions"`
+	Fields      []Field     `yaml:"fields"`
+	TimeSlots   TimeSlots   `yaml:"time_slots"`
+	Strategy    string      `yaml:"strategy"`
+	Rules       Rules       `yaml:"rules"`
+	Guidelines  Guidelines  `yaml:"guidelines"`
+	GameChanger GameChanger `yaml:"gamechanger"`
 }
 
 // AllTeams returns all team names across all divisions.
@@ -191,6 +197,18 @@ func (c *Config) validate() error {
 				if _, err := time.Parse("15:04", r.GameTime); err != nil {
 					return fmt.Errorf("field %q: invalid game_time %q (expected HH:MM format)", f.Name, r.GameTime)
 				}
+			}
+		}
+	}
+
+	// Default GameChanger team names to the config team name when not set
+	if c.GameChanger.TeamNames == nil {
+		c.GameChanger.TeamNames = make(map[string]string)
+	}
+	for _, div := range c.Divisions {
+		for _, team := range div.Teams {
+			if _, ok := c.GameChanger.TeamNames[team]; !ok {
+				c.GameChanger.TeamNames[team] = team
 			}
 		}
 	}
