@@ -22,16 +22,12 @@ func Generate(cfg *config.Config, result *schedule.Result, slots []schedule.Slot
 	}
 
 	// Build game entries from assignments for team sheets
-	var fieldNames []string
-	for _, field := range cfg.Fields {
-		fieldNames = append(fieldNames, field.Name)
-	}
 	var games []gameEntry
 	for _, a := range result.Assignments {
 		games = append(games, gameEntry{
 			Date:  a.Slot.Date,
 			Time:  a.Slot.Time,
-			Field: fieldColumnName(a.Slot.Field, fieldNames),
+			Field: fieldColumnName(a.Slot.Field, cfg),
 			Home:  a.Game.Home,
 			Away:  a.Game.Away,
 		})
@@ -71,32 +67,18 @@ func UpdateTeamSheets(path string, cfg *config.Config) error {
 	return f.SaveAs(path)
 }
 
-func fieldColumnName(name string, allNames []string) string {
-	first := name
-	for i, c := range name {
-		if c == ' ' {
-			first = name[:i]
-			break
-		}
-	}
-	// Check if first word is unique
-	count := 0
-	for _, n := range allNames {
-		word := n
-		for i, c := range n {
-			if c == ' ' {
-				word = n[:i]
-				break
+// fieldColumnName returns the Excel column header to use for a field,
+// looking up its ShortName in cfg. Falls back to the full name.
+func fieldColumnName(name string, cfg *config.Config) string {
+	for _, f := range cfg.Fields {
+		if f.Name == name {
+			if f.ShortName != "" {
+				return f.ShortName
 			}
-		}
-		if word == first {
-			count++
+			return f.Name
 		}
 	}
-	if count > 1 {
-		return name
-	}
-	return first
+	return name
 }
 
 func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Result, slots []schedule.Slot, blackouts []schedule.BlackoutSlot) (int, error) {
@@ -104,13 +86,9 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 	f.NewSheet(sheet)
 
 	// Build field column names
-	var fieldNames []string
-	for _, field := range cfg.Fields {
-		fieldNames = append(fieldNames, field.Name)
-	}
-	fieldCols := make([]string, len(fieldNames))
-	for i, name := range fieldNames {
-		fieldCols[i] = fieldColumnName(name, fieldNames)
+	fieldCols := make([]string, len(cfg.Fields))
+	for i, field := range cfg.Fields {
+		fieldCols[i] = fieldColumnName(field.Name, cfg)
 	}
 
 	// Headers: Date, Day, Time, <field1>, <field2>, ...
@@ -142,8 +120,8 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 
 	// Build field name -> column index (0-based into field list)
 	fieldIndex := make(map[string]int)
-	for i, name := range fieldNames {
-		fieldIndex[name] = i
+	for i, field := range cfg.Fields {
+		fieldIndex[field.Name] = i
 	}
 
 	// Build assignment lookup: (date, time, field) -> assignment
@@ -198,9 +176,9 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 		f.SetCellValue(sheet, cellRef(2, row), ts.date.Format("Mon"))
 		f.SetCellValue(sheet, cellRef(3, row), ts.time)
 
-		for fi, fname := range fieldNames {
+		for fi, field := range cfg.Fields {
 			col := fi + 4 // 1-indexed, after Date/Day/Time
-			sk := slotKey{ts.date, ts.time, fname}
+			sk := slotKey{ts.date, ts.time, field.Name}
 
 			if a, ok := assignmentMap[sk]; ok {
 				f.SetCellValue(sheet, cellRef(col, row), fmt.Sprintf("%s @ %s", a.Game.Away, a.Game.Home))
@@ -223,7 +201,7 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 	f.SetColWidth(sheet, "A", "A", 18)
 	f.SetColWidth(sheet, "B", "B", 8)
 	f.SetColWidth(sheet, "C", "C", 10)
-	for i := range fieldNames {
+	for i := range cfg.Fields {
 		col := colLetter(i + 4)
 		f.SetColWidth(sheet, col, col, 30)
 	}
@@ -234,7 +212,7 @@ func writeMasterSheet(f *excelize.File, cfg *config.Config, result *schedule.Res
 		Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"FFC7CE"}},
 		Font: &excelize.Font{Size: 16, Family: "Arial"},
 	})
-	for i := range fieldNames {
+	for i := range cfg.Fields {
 		col := colLetter(i + 4)
 		cellRange := fmt.Sprintf("%s2:%s%d", col, col, lastRow)
 		topCell := fmt.Sprintf("%s2", col)

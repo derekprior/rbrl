@@ -60,15 +60,9 @@ func Export(cfg *config.Config, schedulePath string, w io.Writer) error {
 
 // buildFieldAddressMap maps field column header names to their addresses.
 func buildFieldAddressMap(cfg *config.Config) map[string]string {
-	var fullNames []string
-	for _, f := range cfg.Fields {
-		fullNames = append(fullNames, f.Name)
-	}
-
 	m := make(map[string]string)
 	for _, f := range cfg.Fields {
-		colName := fieldColumnName(f.Name, fullNames)
-		m[colName] = f.Address
+		m[fieldColumnName(f.Name, cfg)] = f.Address
 	}
 	return m
 }

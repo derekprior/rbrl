@@ -63,6 +63,7 @@ func (r *Reservation) Dates() []time.Time {
 
 type Field struct {
 	Name         string        `yaml:"name"`
+	ShortName    string        `yaml:"short_name"`
 	Address      string        `yaml:"address"`
 	Reservations []Reservation `yaml:"reservations"`
 }
@@ -197,6 +198,27 @@ func (c *Config) validate() error {
 				if _, err := time.Parse("15:04", r.GameTime); err != nil {
 					return fmt.Errorf("field %q: invalid game_time %q (expected HH:MM format)", f.Name, r.GameTime)
 				}
+			}
+		}
+	}
+
+	// Validate field short_names: must be unique and must not collide with
+	// any other field's full Name.
+	shortByName := make(map[string]string)
+	for _, f := range c.Fields {
+		if f.ShortName == "" {
+			continue
+		}
+		if prev, ok := shortByName[f.ShortName]; ok {
+			return fmt.Errorf("field %q: short_name %q already used by field %q", f.Name, f.ShortName, prev)
+		}
+		shortByName[f.ShortName] = f.Name
+		for _, other := range c.Fields {
+			if other.Name == f.Name {
+				continue
+			}
+			if other.Name == f.ShortName {
+				return fmt.Errorf("field %q: short_name %q collides with another field's name", f.Name, f.ShortName)
 			}
 		}
 	}

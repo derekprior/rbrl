@@ -384,3 +384,61 @@ gamechanger:
 		}
 	})
 }
+
+func TestFieldShortNameValidation(t *testing.T) {
+	t.Run("duplicate short_name rejected", func(t *testing.T) {
+		c := minimalConfig()
+		c.Fields = []Field{
+			{Name: "Field A", ShortName: "A"},
+			{Name: "Field B", ShortName: "A"},
+		}
+		if err := c.validate(); err == nil {
+			t.Error("expected error for duplicate short_name")
+		}
+	})
+
+	t.Run("short_name colliding with another field name rejected", func(t *testing.T) {
+		c := minimalConfig()
+		c.Fields = []Field{
+			{Name: "Washington Park", ShortName: "Symonds"},
+			{Name: "Symonds"},
+		}
+		if err := c.validate(); err == nil {
+			t.Error("expected error for short_name colliding with another field name")
+		}
+	})
+
+	t.Run("valid short_names accepted", func(t *testing.T) {
+		c := minimalConfig()
+		c.Fields = []Field{
+			{Name: "Washington Park", ShortName: "Washington"},
+			{Name: "Symonds Field", ShortName: "Symonds"},
+		}
+		if err := c.validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing short_name accepted", func(t *testing.T) {
+		c := minimalConfig()
+		c.Fields = []Field{
+			{Name: "Field A"},
+			{Name: "Field B"},
+		}
+		if err := c.validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
+func minimalConfig() *Config {
+	return &Config{
+		Season: Season{
+			StartDate: Date{Time: time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)},
+			EndDate:   Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
+		},
+		Divisions: []Division{{Name: "A", Teams: []string{"T1", "T2"}}},
+		Fields:    []Field{{Name: "F1"}},
+		TimeSlots: TimeSlots{Sunday: []string{"12:30"}},
+	}
+}

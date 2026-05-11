@@ -232,3 +232,21 @@ func TestUpdateTeamSheets(t *testing.T) {
 		t.Errorf("Astros G2 after update = %q, want Padres @ Astros", val)
 	}
 }
+
+func TestFieldColumnName(t *testing.T) {
+	cfg := &config.Config{
+		Fields: []config.Field{
+			{Name: "Washington Park", ShortName: "Washington"},
+			{Name: "Symonds Field"}, // no short_name
+		},
+	}
+	if got := fieldColumnName("Washington Park", cfg); got != "Washington" {
+		t.Errorf("expected short_name 'Washington', got %q", got)
+	}
+	if got := fieldColumnName("Symonds Field", cfg); got != "Symonds Field" {
+		t.Errorf("expected fallback to full name, got %q", got)
+	}
+	if got := fieldColumnName("Unknown", cfg); got != "Unknown" {
+		t.Errorf("expected unchanged for unknown name, got %q", got)
+	}
+}
