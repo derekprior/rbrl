@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/derekprior/rbrl/internal/config"
 	"github.com/derekprior/rbrl/internal/excel"
+	"github.com/derekprior/rbrl/internal/reschedule"
 	"github.com/derekprior/rbrl/internal/schedule"
 	"github.com/derekprior/rbrl/internal/strategy"
 	"github.com/derekprior/rbrl/internal/validator"
@@ -109,7 +111,42 @@ func main() {
 		},
 	}
 
-	scheduleCmd.AddCommand(generateCmd, validateCmd, exportCmd)
+	rescheduleCmd := &cobra.Command{
+		Use:   "reschedule [schedule.xlsx] \"Away @ Home\"",
+		Short: "List candidate slots for moving an existing game (does not modify the file)",
+		Long: `Reschedule lists candidate slots for moving a single game already in the
+schedule. The first positional argument is treated as the schedule path if it
+does not contain " @ "; otherwise schedule.xlsx is used. The remaining
+argument is a game specification in "Away @ Home" form (matching how cells
+appear in the master sheet).
+
+Every open slot strictly after the game's currently scheduled date is
+evaluated against the rules and guidelines and reported as OK or WARN with
+reasons. The earliest non-failing candidate is recommended. The file is
+never modified.`,
+		Args:         cobra.RangeArgs(1, 2),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, err := resolveConfigPath(configFile)
+			if err != nil {
+				return err
+			}
+			schedulePath := "schedule.xlsx"
+			var spec string
+			if len(args) == 2 {
+				schedulePath = args[0]
+				spec = args[1]
+			} else {
+				spec = args[0]
+			}
+			if !strings.Contains(spec, " @ ") {
+				return fmt.Errorf("game specification must be in \"Away @ Home\" form (got %q)", spec)
+			}
+			return runReschedule(configPath, schedulePath, spec)
+		},
+	}
+
+	scheduleCmd.AddCommand(generateCmd, validateCmd, exportCmd, rescheduleCmd)
 	rootCmd.AddCommand(initCmd, scheduleCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -383,6 +420,98 @@ func runValidate(configPath, schedulePath string) error {
 		return fmt.Errorf("%d constraint violations found", errors)
 	}
 	return nil
+}
+
+func runReschedule(configPath, schedulePath, spec string) error {
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	assignments, err := reschedule.LoadAssignments(schedulePath, cfg)
+	if err != nil {
+		return fmt.Errorf("loading schedule: %w", err)
+	}
+
+	idx, err := reschedule.FindGame(assignments, spec)
+	if err != nil {
+		return err
+	}
+
+	stationary := make([]reschedule.Assignment, 0, len(assignments)-1)
+	for i, a := range assignments {
+		if i != idx {
+			stationary = append(stationary, a)
+		}
+	}
+	pool := reschedule.CandidateSlots(cfg, stationary)
+
+	printGameCandidates(cfg, stationary, assignments[idx], pool)
+	fmt.Println()
+	printSingleRecommendation(cfg, stationary, assignments[idx], pool)
+	return nil
+}
+
+func printGameCandidates(cfg *config.Config, others []reschedule.Assignment, current reschedule.Assignment, pool []schedule.Slot) {
+	fmt.Printf("%sGame:%s %s  %s(currently %s %s @ %s)%s\n",
+		colorBold, colorReset, current.Game,
+		colorDim, current.Slot.Date.Format("01/02 Mon"), current.Slot.Time, current.Slot.Field, colorReset)
+
+	cands := reschedule.Evaluate(cfg, others, current.Game, reschedule.SlotsAfter(pool, current.Slot.Date))
+	if len(cands) == 0 {
+		fmt.Printf("  %sno open slots after the current date%s\n", colorDim, colorReset)
+		return
+	}
+
+	fmt.Printf("\n  %s%-13s %-8s %-22s %s%s\n",
+		colorDim, "Date", "Time", "Field", "Status / Reasons", colorReset)
+
+	for _, c := range cands {
+		var marker, color string
+		switch c.Status {
+		case reschedule.StatusOK:
+			marker, color = "✓", colorGreen
+		case reschedule.StatusWarn:
+			marker, color = "⚠", colorYellow
+		case reschedule.StatusFail:
+			marker, color = "✗", colorRed
+		}
+		dateLabel := c.Slot.Date.Format("01/02 Mon")
+		if c.Status == reschedule.StatusOK {
+			fmt.Printf("  %s%s %-13s %-8s %-22s OK%s\n",
+				color, marker, dateLabel, c.Slot.Time, c.Slot.Field, colorReset)
+			continue
+		}
+		reasons := append([]string{}, c.HardReasons...)
+		reasons = append(reasons, c.SoftReasons...)
+		fmt.Printf("  %s%s %-13s %-8s %-22s %s%s\n",
+			color, marker, dateLabel, c.Slot.Time, c.Slot.Field,
+			reasons[0], colorReset)
+		for _, r := range reasons[1:] {
+			fmt.Printf("  %s  %-13s %-8s %-22s %s%s\n",
+				color, "", "", "", r, colorReset)
+		}
+	}
+}
+
+func printSingleRecommendation(cfg *config.Config, others []reschedule.Assignment, current reschedule.Assignment, pool []schedule.Slot) {
+	cands := reschedule.Evaluate(cfg, others, current.Game, reschedule.SlotsAfter(pool, current.Slot.Date))
+	for _, c := range cands {
+		if c.Status == reschedule.StatusFail {
+			continue
+		}
+		fmt.Printf("%sRecommendation:%s %s %s @ %s",
+			colorBold, colorReset,
+			c.Slot.Date.Format("01/02 Mon"), c.Slot.Time, c.Slot.Field)
+		fmt.Println()
+		if c.Status == reschedule.StatusWarn {
+			for _, r := range c.SoftReasons {
+				fmt.Printf("  %s⚠ %s%s\n", colorYellow, r, colorReset)
+			}
+		}
+		return
+	}
+	fmt.Printf("%s✗ No candidate slot satisfies the rules.%s\n", colorRed, colorReset)
 }
 
 func runExport(configPath, schedulePath string) error {
