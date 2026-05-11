@@ -50,16 +50,35 @@ time_slots:
 
 strategy: division_weighted
 
-rules:
-  max_games_per_day_per_team: 1
-  max_consecutive_days: 2
-  max_games_per_week: 3
-  max_games_per_timeslot: 2
-
-guidelines:
-  min_days_between_same_matchup: 14
-  balance_sunday_games: true
-  balance_pace: true
+constraints:
+  max_games_per_day_per_team:
+    value: 1
+    mode: rule
+  max_consecutive_days:
+    value: 2
+    mode: rule
+  max_games_per_week:
+    value: 3
+    mode: rule
+  max_games_per_timeslot:
+    value: 2
+    mode: rule
+  max_3_in_4_days:
+    value: true
+    mode:
+      preseason: rule
+      reschedule: guideline
+  min_days_between_same_matchup:
+    value: 14
+    mode:
+      preseason: guideline
+      reschedule: disabled
+  balance_sunday_games:
+    value: true
+    mode: guideline
+  balance_pace:
+    value: true
+    mode: guideline
 `
 
 func TestLoadConfig(t *testing.T) {
@@ -440,5 +459,221 @@ func minimalConfig() *Config {
 		Divisions: []Division{{Name: "A", Teams: []string{"T1", "T2"}}},
 		Fields:    []Field{{Name: "F1"}},
 		TimeSlots: TimeSlots{Sunday: []string{"12:30"}},
+	}
+}
+
+func TestMakeupTimeslotValidation(t *testing.T) {
+	t.Run("invalid time format rejected", func(t *testing.T) {
+		c := minimalConfig()
+		c.TimeSlots.MakeupSunday = []string{"not-a-time"}
+		if err := c.validate(); err == nil {
+			t.Error("expected error for invalid HH:MM")
+		}
+	})
+
+	t.Run("duplicate of regular slot rejected", func(t *testing.T) {
+		c := minimalConfig()
+		c.TimeSlots.Sunday = []string{"17:00"}
+		c.TimeSlots.MakeupSunday = []string{"17:00"}
+		if err := c.validate(); err == nil {
+			t.Error("expected error when makeup duplicates regular slot")
+		}
+	})
+
+	t.Run("duplicate within makeup list rejected", func(t *testing.T) {
+		c := minimalConfig()
+		c.TimeSlots.MakeupSunday = []string{"14:45", "14:45"}
+		if err := c.validate(); err == nil {
+			t.Error("expected error for duplicate makeup time")
+		}
+	})
+
+	t.Run("valid makeup slots accepted", func(t *testing.T) {
+		c := minimalConfig()
+		c.TimeSlots.MakeupSunday = []string{"14:45"}
+		c.TimeSlots.MakeupWeekday = []string{"19:30"}
+		if err := c.validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestConstraintsParsing(t *testing.T) {
+	cfg, err := LoadFromBytes([]byte(testConfigYAML))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	t.Run("populates Rules from constraints", func(t *testing.T) {
+		if cfg.Rules.MaxGamesPerDayPerTeam != 1 {
+			t.Errorf("MaxGamesPerDayPerTeam = %d, want 1", cfg.Rules.MaxGamesPerDayPerTeam)
+		}
+		if cfg.Rules.MaxConsecutiveDays != 2 {
+			t.Errorf("MaxConsecutiveDays = %d, want 2", cfg.Rules.MaxConsecutiveDays)
+		}
+		if cfg.Rules.MaxGamesPerWeek != 3 {
+			t.Errorf("MaxGamesPerWeek = %d, want 3", cfg.Rules.MaxGamesPerWeek)
+		}
+		if cfg.Rules.MaxGamesPerTimeslot != 2 {
+			t.Errorf("MaxGamesPerTimeslot = %d, want 2", cfg.Rules.MaxGamesPerTimeslot)
+		}
+		if !cfg.Rules.Max3In4Days {
+			t.Error("Max3In4Days = false, want true")
+		}
+	})
+
+	t.Run("populates Guidelines from constraints", func(t *testing.T) {
+		if cfg.Guidelines.MinDaysBetweenSameMatchup != 14 {
+			t.Errorf("MinDaysBetweenSameMatchup = %d, want 14", cfg.Guidelines.MinDaysBetweenSameMatchup)
+		}
+		if !cfg.Guidelines.BalanceSundayGames {
+			t.Error("BalanceSundayGames should be true")
+		}
+		if !cfg.Guidelines.BalancePace {
+			t.Error("BalancePace should be true")
+		}
+	})
+
+	t.Run("severity per mode", func(t *testing.T) {
+		cases := []struct {
+			name string
+			mode Mode
+			want Severity
+		}{
+			{"max_games_per_day_per_team", ModePreseason, SeverityRule},
+			{"max_games_per_day_per_team", ModeReschedule, SeverityRule},
+			{"max_3_in_4_days", ModePreseason, SeverityRule},
+			{"max_3_in_4_days", ModeReschedule, SeverityGuideline},
+			{"min_days_between_same_matchup", ModePreseason, SeverityGuideline},
+			{"min_days_between_same_matchup", ModeReschedule, SeverityDisabled},
+			{"balance_sunday_games", ModePreseason, SeverityGuideline},
+			{"balance_sunday_games", ModeReschedule, SeverityGuideline},
+			{"unknown_constraint", ModeReschedule, SeverityRule},
+		}
+		for _, c := range cases {
+			got := cfg.Severity(c.name, c.mode)
+			if got != c.want {
+				t.Errorf("Severity(%q, %q) = %q, want %q", c.name, c.mode, got, c.want)
+			}
+		}
+	})
+}
+
+func TestConstraintsValidation(t *testing.T) {
+	base := func(extra string) string {
+		return `
+season:
+  start_date: "2026-04-25"
+  end_date: "2026-05-31"
+divisions:
+  - name: A
+    teams: [T1, T2]
+fields:
+  - name: F1
+time_slots:
+  weekday: ["17:45"]
+strategy: division_weighted
+constraints:
+` + extra
+	}
+
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "unknown constraint name",
+			yaml: base(`  no_such_constraint:
+    value: 1
+    mode: rule
+`),
+		},
+		{
+			name: "wrong value type (bool for int)",
+			yaml: base(`  max_consecutive_days:
+    value: true
+    mode: rule
+`),
+		},
+		{
+			name: "wrong value type (int for bool)",
+			yaml: base(`  max_3_in_4_days:
+    value: 5
+    mode: rule
+`),
+		},
+		{
+			name: "unknown mode",
+			yaml: base(`  max_consecutive_days:
+    value: 2
+    mode:
+      midseason: rule
+`),
+		},
+		{
+			name: "unknown severity",
+			yaml: base(`  max_consecutive_days:
+    value: 2
+    mode: optional
+`),
+		},
+		{
+			name: "physical constraint downgraded",
+			yaml: base(`  max_games_per_timeslot:
+    value: 2
+    mode:
+      reschedule: guideline
+`),
+		},
+		{
+			name: "missing value",
+			yaml: base(`  max_consecutive_days:
+    mode: rule
+`),
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := LoadFromBytes([]byte(c.yaml)); err == nil {
+				t.Error("expected validation error, got nil")
+			}
+		})
+	}
+}
+
+func TestConstraintModeShortForm(t *testing.T) {
+	yaml := `
+season:
+  start_date: "2026-04-25"
+  end_date: "2026-05-31"
+divisions:
+  - name: A
+    teams: [T1, T2]
+fields:
+  - name: F1
+time_slots:
+  weekday: ["17:45"]
+strategy: division_weighted
+constraints:
+  max_consecutive_days:
+    value: 2
+    mode: guideline
+`
+	cfg, err := LoadFromBytes([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Severity("max_consecutive_days", ModePreseason) != SeverityGuideline {
+		t.Error("short-form mode should apply to preseason")
+	}
+	if cfg.Severity("max_consecutive_days", ModeReschedule) != SeverityGuideline {
+		t.Error("short-form mode should apply to reschedule")
+	}
+}
+
+func TestSeverityDefaultsToRule(t *testing.T) {
+	cfg := minimalConfig()
+	if cfg.Severity("max_consecutive_days", ModeReschedule) != SeverityRule {
+		t.Error("missing constraint should default to rule")
 	}
 }
