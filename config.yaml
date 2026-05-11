@@ -1,0 +1,227 @@
+# RBRL Season Configuration
+# ========================
+# This file defines the parameters for generating a baseball schedule.
+
+# Season defines the date range for the regular season.
+season:
+  start_date: "2026-04-25"
+  end_date: "2026-05-31"
+  overflow_end_date: "2026-06-05"
+
+  # Blackout dates are full days where no games will be scheduled on any field.
+  # Common examples: holidays, town events, etc.
+  blackout_dates:
+    - date: "2026-05-10"
+      reason: "Mother's Day"
+    - date: "2026-05-23"
+      reason: "Memorial Day Weekend"
+    - date: "2026-05-24"
+      reason: "Memorial Day Weekend"
+
+# Divisions and their teams. The number of divisions and teams per division
+# can vary. Team names must be unique across all divisions.
+divisions:
+  - name: American
+    teams: [Angels, Astros, Athletics, Mariners, Royals]
+  - name: National
+    teams: [Cubs, Padres, Phillies, Pirates, Marlins]
+
+# Fields available for scheduling. Each field can have reservations that block
+# it for specific dates or date ranges.
+#
+# Reservations block a field for a given date or date range.
+# If 'times' is omitted or empty, the field is blocked for the full day.
+# If 'times' is provided, only those specific time slots are blocked.
+# If 'game_time' is provided, slots within 1 hour before to 3 hours after
+# the game start time are blocked.
+#
+# Single date reservation (full day):
+#   - date: "2026-05-04"
+#     reason: "Freshman"
+#
+# Single date, specific times only:
+#   - date: "2026-05-04"
+#     times: ["17:45"]
+#     reason: "Freshman"
+#
+# Single date with game time (blocks 1hr before to 3hr after):
+#   - date: "2026-05-04"
+#     game_time: "10:00"
+#     reason: "Freshman"
+#
+# Date range reservation (blocks every day in the range):
+#   - start_date: "2026-04-25"
+#     end_date: "2026-05-31"
+#     reason: "Reserved"
+fields:
+  - name: Moscariello Ballpark
+    short_name: Moscariello
+    address: "248 Bancroft Ave, Reading, MA 01867"
+    reservations:
+      - start_date: "2026-04-25"
+        end_date: "2026-06-05"
+        reason: "Reserved"
+      - date: "2026-04-08"
+        game_time: "16:15"
+        reason: "Varsity"
+      - date: "2026-04-10"
+        game_time: "16:15"
+        reason: "Varsity"
+      - date: "2026-04-22"
+        game_time: "10:00"
+        reason: "Varsity"
+      - date: "2026-04-24"
+        game_time: "10:00"
+        reason: "Varsity"
+      - date: "2026-04-29"
+        game_time: "16:15"
+        reason: "Varsity"
+      - date: "2026-05-07"
+        game_time: "16:15"
+        reason: "Varsity"
+      - date: "2026-05-11"
+        game_time: "16:15"
+        reason: "Varsity"
+      - date: "2026-05-17"
+        game_time: "13:00"
+        reason: "Varsity"
+      - date: "2026-05-19"
+        game_time: "16:15"
+        reason: "Varsity"
+  - name: Symonds Field
+    short_name: Symonds
+    address: "73 Symonds Way, Reading, MA 01867"
+    reservations:
+      - date: "2026-04-16"
+        game_time: "16:15"
+        reason: "Freshman"
+      - date: "2026-04-28"
+        game_time: "16:15"
+        reason: "Freshman"
+      - date: "2026-05-01"
+        game_time: "16:15"
+        reason: "Freshman"
+      - date: "2026-05-05"
+        game_time: "16:15"
+        reason: "Freshman"
+      - date: "2026-05-09"
+        game_time: "10:00"
+        reason: "Freshman"
+      - date: "2026-05-13"
+        game_time: "16:15"
+        reason: "Freshman"
+      - date: "2026-05-15"
+        game_time: "16:15"
+        reason: "Freshman"
+      - date: "2026-05-20"
+        game_time: "16:15"
+        reason: "Freshman"
+  - name: Washington Park
+    short_name: Washington
+    address: "86 Washington St, Reading, MA 01867"
+    reservations:
+      - date: "2026-04-08"
+        game_time: "16:15"
+        reason: "JV"
+      - date: "2026-04-10"
+        game_time: "16:15"
+        reason: "JV"
+      - date: "2026-04-14"
+        game_time: "16:15"
+        reason: "JV"
+      - date: "2026-04-22"
+        game_time: "10:00"
+        reason: "JV"
+      - date: "2026-04-24"
+        game_time: "10:00"
+        reason: "JV"
+      - date: "2026-05-08"
+        game_time: "16:15"
+        reason: "JV"
+      - date: "2026-05-11"
+        game_time: "16:15"
+        reason: "JV"
+      - date: "2026-05-19"
+        game_time: "16:15"
+        reason: "JV"
+
+# Time slots define when games can be played on each type of day.
+# Times use 24-hour format (e.g., "17:45" = 5:45 PM).
+time_slots:
+  weekday: ["17:45"]
+  saturday: ["12:30", "14:45", "17:00"]
+  sunday: ["17:00"]
+
+  # Makeup-only slots: not used by the initial scheduler, but considered
+  # as candidates by `rbrl schedule reschedule`.
+  makeup_sunday: ["14:45"]
+
+  # Holiday dates are treated as Sundays for scheduling purposes.
+  # Use this for holidays that fall on weekdays but have Sunday-style availability.
+  holiday_dates:
+    - "2026-05-25"
+
+# Strategy determines how matchups are generated.
+# "division_weighted" plays each intra-division opponent twice and each
+# inter-division opponent once, with balanced home/away assignments.
+strategy: division_weighted
+
+# Constraints checked when generating or rescheduling.
+#
+# Each entry has:
+#   value: numeric threshold or boolean enable flag (varies per constraint).
+#   mode:  severity. Either a single value applied to all modes, or a per-mode
+#          map. Modes not listed default to "rule".
+#     - rule       hard requirement; violation fails the schedule
+#     - guideline  soft preference; violation produces a warning
+#     - disabled   not checked
+#
+# Modes: preseason (initial generation) | reschedule (in-season makeups).
+constraints:
+  max_games_per_day_per_team:
+    value: 1
+    mode: rule
+  max_games_per_timeslot:
+    value: 2
+    mode: rule
+  max_consecutive_days:
+    value: 2
+    mode: rule
+  max_games_per_week:
+    value: 3
+    mode: rule
+  max_3_in_4_days:
+    value: true
+    mode:
+      preseason: rule
+      reschedule: guideline
+  min_days_between_same_matchup:
+    value: 7
+    mode:
+      preseason: guideline
+      reschedule: disabled
+  balance_sunday_games:
+    value: true
+    mode:
+      preseason: guideline
+      reschedule: disabled
+  balance_pace:
+    value: true
+    mode:
+      preseason: guideline
+      reschedule: disabled
+
+# GameChanger team name mappings. Maps config team names to their names in
+# GameChanger. Defaults to the config team name if omitted.
+gamechanger:
+  team_names:
+    Angels: Angels
+    Astros: Astros
+    Athletics: "A's"
+    Mariners: "Mariners - RBRL"
+    Royals: Royals
+    Cubs: Cubs
+    Padres: RBRL Padres
+    Phillies: RBRL Phillies
+    Pirates: Pirates
+    Marlins: Marlins
