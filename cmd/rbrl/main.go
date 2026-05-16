@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -111,6 +112,23 @@ func main() {
 		},
 	}
 
+	openCmd := &cobra.Command{
+		Use:          "open [schedule.xlsx]",
+		Short:        "Open the schedule in the default application",
+		Args:         cobra.MaximumNArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			schedulePath := "schedule.xlsx"
+			if len(args) > 0 {
+				schedulePath = args[0]
+			}
+			if _, err := os.Stat(schedulePath); err != nil {
+				return fmt.Errorf("schedule file not found: %s", schedulePath)
+			}
+			return exec.Command("open", schedulePath).Start()
+		},
+	}
+
 	rescheduleCmd := &cobra.Command{
 		Use:   "reschedule [schedule.xlsx] \"Away @ Home\"",
 		Short: "List candidate slots for moving an existing game (does not modify the file)",
@@ -146,7 +164,7 @@ never modified.`,
 		},
 	}
 
-	scheduleCmd.AddCommand(generateCmd, validateCmd, exportCmd, rescheduleCmd)
+	scheduleCmd.AddCommand(generateCmd, validateCmd, exportCmd, openCmd, rescheduleCmd)
 	rootCmd.AddCommand(initCmd, scheduleCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
